@@ -10,7 +10,7 @@ const PROMPT_POSITION_AFTER = 2;
 const PROMPT_DEPTH = 2;
 const PROMPT_DEPTH_BEFORE = 0;
 const PROMPT_ROLE_SYSTEM = 0;
-const MAX_CHAT_MESSAGES_FOR_CONTEXT = 30;
+const MAX_CHAT_MESSAGES_FOR_CONTEXT = 20;
 
 const CONNECTION_PROFILE_EVENTS = [
     'CONNECTION_PROFILE_CREATED',
@@ -177,24 +177,24 @@ function buildTaskGenerationMessages(context, storyGoal, numberOfSteps) {
     const characterContext = getCharacterContext(context);
     const chatContext = getChatContext(context);
 
-    const systemContent = `You are a task planning assistant for interactive roleplay. Your job is to break a narrative goal into concrete, actionable tasks.
+    const systemContent = `You are a task planning assistant for interactive roleplay. You analyze the CURRENT conversation and generate concrete, actionable tasks that lead from the current situation toward the narrative goal.
 
 You must respond ONLY with valid JSON, nothing else:
 {"tasks": [{"title": "Short Task Title", "description": "What exactly needs to happen to complete this task"}]}
 
 Rules:
-- Each task must be a clear, actionable objective that can be definitively accomplished
-- Tasks are sequential: each builds on the previous one
-- Generate exactly ${numberOfSteps} tasks
-- The title should be 2-6 words summarizing the task
-- The description should be 1-3 sentences explaining what must happen
-- Tasks should feel natural within the roleplay, not forced
-- When all tasks are complete, the overall goal must be fulfilled`;
+- First, understand what is happening RIGHT NOW in the conversation. Where are the characters? What are they doing?
+- Task 1 MUST be a natural next step from the current situation. If characters are fighting, Task 1 should start from the fight — not ignore it. If they are in a village, Task 1 starts there.
+- Each subsequent task builds sequentially toward the narrative goal.
+- Generate exactly ${numberOfSteps} tasks.
+- Tasks must feel like natural story beats — they should emerge from what is happening, not feel forced or disconnected.
+- When all tasks are complete, the overall goal must be fulfilled.`;
 
-    let userContent = `Narrative Goal: ${storyGoal}\n\n`;
+    let userContent = '';
+    if (chatContext) userContent += `--- Current Conversation (this is where the story is right now) ---\n${chatContext}\n\n`;
     if (characterContext) userContent += `--- Character Context ---\n${characterContext}\n\n`;
-    if (chatContext) userContent += `--- Recent Chat History ---\n${chatContext}\n\n`;
-    userContent += `Break the goal above into ${numberOfSteps} actionable tasks. Respond with JSON only.`;
+    userContent += `Narrative Goal: ${storyGoal}\n\n`;
+    userContent += `Generate ${numberOfSteps} tasks that lead from the CURRENT SITUATION above toward the goal. Task 1 must feel like a natural next step from what is happening right now. Respond with JSON only.`;
 
     return [
         { role: 'system', content: systemContent },
@@ -874,6 +874,7 @@ function createSettingsPanel() {
     addMoreBtn.id = 'story_progress_extended_add_more';
     addMoreBtn.className = 'menu_button story-progress-extended__btn story-progress-extended__btn--add-more';
     addMoreBtn.textContent = 'Add Tasks';
+    addMoreBtn.style.display = 'none';
 
     const resetBtn = document.createElement('button');
     resetBtn.id = 'story_progress_extended_reset';
