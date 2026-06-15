@@ -202,7 +202,7 @@ Rules:
     ];
 }
 
-function buildAddMoreTasksMessages(context, storyGoal, existingSteps, numberOfNewSteps) {
+function buildAddMoreTasksMessages(context, storyGoal, existingSteps, numberOfNewSteps, customGoal) {
     const characterContext = getCharacterContext(context);
     const chatContext = getChatContext(context);
 
@@ -222,9 +222,10 @@ Rules:
 - Tasks should feel natural within the roleplay, not forced`;
 
     let userContent = `Narrative Goal: ${storyGoal}\n\nExisting Tasks:\n${tasksSummary}\n\n`;
+    if (customGoal) userContent += `--- Additional Goal ---\n${customGoal}\n\n`;
     if (characterContext) userContent += `--- Character Context ---\n${characterContext}\n\n`;
     if (chatContext) userContent += `--- Recent Chat History ---\n${chatContext}\n\n`;
-    userContent += `Generate ${numberOfNewSteps} more tasks that continue from the existing ones. Respond with JSON only.`;
+    userContent += `Generate ${numberOfNewSteps} more tasks that continue from the existing ones${customGoal ? ' and achieve the additional goal' : ''}. Respond with JSON only.`;
 
     return [
         { role: 'system', content: systemContent },
@@ -448,7 +449,6 @@ function showToast(title, body, type) {
 async function generateStorySteps(storyGoal) {
     const context = getContextSafely();
     if (!context) return { success: false, error: 'Context unavailable' };
-    if (isGenerating) return { success: false, error: 'Already generating' };
 
     const settings = getSettings(context);
     if (!settings.connectionProfileId) return { success: false, error: 'No connection profile selected' };
@@ -503,10 +503,9 @@ async function generateStorySteps(storyGoal) {
     }
 }
 
-async function addMoreStorySteps(numberOfNewSteps) {
+async function addMoreStorySteps(numberOfNewSteps, customGoal) {
     const context = getContextSafely();
     if (!context) return { success: false, error: 'Context unavailable' };
-    if (isGenerating) return { success: false, error: 'Already generating' };
 
     const settings = getSettings(context);
     if (!settings.connectionProfileId) return { success: false, error: 'No connection profile selected' };
@@ -515,7 +514,7 @@ async function addMoreStorySteps(numberOfNewSteps) {
     if (!storyData?.isActive) return { success: false, error: 'No active story' };
 
     try {
-        const messages = buildAddMoreTasksMessages(context, storyData.storyGoal, storyData.storySteps, numberOfNewSteps);
+        const messages = buildAddMoreTasksMessages(context, storyData.storyGoal, storyData.storySteps, numberOfNewSteps, customGoal);
 
         const apiMap = context.CONNECT_API_MAP?.[getProfileApi(context, settings.connectionProfileId)];
         const isCC = apiMap?.selected === 'openai';
@@ -561,7 +560,6 @@ async function addMoreStorySteps(numberOfNewSteps) {
 async function checkStepCompletion() {
     const context = getContextSafely();
     if (!context) return { success: false, error: 'Context unavailable' };
-    if (isChecking || isGenerating) return { success: false, error: 'Busy' };
 
     const settings = getSettings(context);
     const storyData = getStoryData(context);
@@ -674,6 +672,7 @@ function incrementMessageCounter(isAI) {
 async function onAIMessage() {
     const context = getContextSafely();
     if (!context) return;
+    if (isChecking || isGenerating) return;
     const settings = getSettings(context);
     const storyData = getStoryData(context);
     if (!storyData?.isActive || storyData.storyComplete || !settings.enabled) return;
@@ -944,11 +943,23 @@ function createSettingsPanel() {
     filterBtn.textContent = 'Hide Completed';
     filterRow.append(filterBtn);
 
+    const spinner = document.createElement('div');
+    spinner.id = 'story_progress_extended_spinner';
+    spinner.className = 'story-progress-extended__spinner';
+    spinner.style.display = 'none';
+    const spinnerDot = document.createElement('span');
+    spinnerDot.className = 'story-progress-extended__spinner-dot';
+    const spinnerText = document.createElement('span');
+    spinnerText.id = 'story_progress_extended_spinner_text';
+    spinnerText.className = 'story-progress-extended__spinner-text';
+    spinnerText.textContent = 'Processing...';
+    spinner.append(spinnerDot, spinnerText);
+
     const statusText = document.createElement('small');
     statusText.id = 'story_progress_extended_progress_status';
     statusText.className = 'story-progress-extended__status';
 
-    progressSection.append(progressHeader, progressBarContainer, goalBanner, filterRow, tasksList, actionRow, statusText);
+    progressSection.append(progressHeader, progressBarContainer, goalBanner, filterRow, tasksList, actionRow, spinner, statusText);
     content.append(progressSection);
 
     drawer.append(toggle, content);
@@ -1246,6 +1257,16 @@ function refreshUI() {
     if (bb) bb.disabled = !storyData || storyData.currentStepIndex <= 0;
     const fb = el('story_progress_extended_filter');
     if (fb) fb.textContent = showIncompleteOnly ? 'Show All' : 'Hide Completed';
+
+    const spinnerEl = el('story_progress_extended_spinner');
+    const spinnerTextEl = el('story_progress_extended_spinner_text');
+    if (spinnerEl) {
+        const busy = isGenerating || isChecking;
+        spinnerEl.style.display = busy ? 'flex' : 'none';
+        if (spinnerTextEl) {
+            spinnerTextEl.textContent = isGenerating ? 'Generating tasks...' : isChecking ? 'Checking completion...' : 'Processing...';
+        }
+    }
 }
 
 async function onGenerateClick() {
@@ -1344,20 +1365,101 @@ function onBackClick() {
     refreshUI();
 }
 
+function showAddTasksPopup() {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'story-progress-extended__modal-overlay';
+
+        const modal = document.createElement('div');
+        modal.className = 'story-progress-extended__modal';
+
+        const title = document.createElement('h3');
+        title.textContent = 'Add More Tasks';
+        title.style.margin = '0 0 0.8rem 0';
+        title.style.fontSize = '1rem';
+
+        const countLabel = document.createElement('label');
+        countLabel.textContent = 'Number of tasks to add:';
+        countLabel.style.display = 'block';
+        countLabel.style.marginBottom = '0.3rem';
+        countLabel.style.fontWeight = '600';
+        countLabel.style.fontSize = '0.85rem';
+
+        const countInput = document.createElement('input');
+        countInput.type = 'number';
+        countInput.min = '1';
+        countInput.max = '20';
+        countInput.value = '3';
+        countInput.className = 'text_pole story-progress-extended__number-input';
+        countInput.style.width = '100%';
+        countInput.style.marginBottom = '0.8rem';
+
+        const goalLabel = document.createElement('label');
+        goalLabel.textContent = 'What should these tasks achieve? (optional):';
+        goalLabel.style.display = 'block';
+        goalLabel.style.marginBottom = '0.3rem';
+        goalLabel.style.fontWeight = '600';
+        goalLabel.style.fontSize = '0.85rem';
+
+        const goalTextarea = document.createElement('textarea');
+        goalTextarea.className = 'text_pole';
+        goalTextarea.rows = 3;
+        goalTextarea.style.width = '100%';
+        goalTextarea.style.resize = 'vertical';
+        goalTextarea.style.marginBottom = '1rem';
+        goalTextarea.placeholder = 'e.g., introduce a rival faction, build tension...';
+
+        const btnRow = document.createElement('div');
+        btnRow.style.display = 'flex';
+        btnRow.style.gap = '0.5rem';
+        btnRow.style.justifyContent = 'flex-end';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'menu_button';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(null); });
+
+        const okBtn = document.createElement('button');
+        okBtn.className = 'menu_button';
+        okBtn.textContent = 'Generate';
+        okBtn.style.backgroundColor = 'rgba(76, 175, 80, 0.3)';
+        okBtn.style.borderColor = 'rgba(76, 175, 80, 0.5)';
+        okBtn.addEventListener('click', () => {
+            const count = parseInt(countInput.value, 10) || 3;
+            const goal = goalTextarea.value.trim();
+            overlay.remove();
+            resolve({ count, goal });
+        });
+
+        btnRow.append(cancelBtn, okBtn);
+        modal.append(title, countLabel, countInput, goalLabel, goalTextarea, btnRow);
+        overlay.append(modal);
+        document.body.append(overlay);
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) { overlay.remove(); resolve(null); }
+        });
+
+        countInput.focus();
+        countInput.select();
+    });
+}
+
 async function onAddMoreClick() {
     if (isGenerating) return;
-    const stepsInput = document.getElementById('story_progress_extended_steps');
-    const count = parseInt(stepsInput?.value, 10) || 3;
+
+    const result = await showAddTasksPopup();
+    if (!result) return;
 
     isGenerating = true;
     refreshUI();
 
     try {
-        const result = await addMoreStorySteps(count);
-        if (result.success) {
-            showToast('Tasks Added', `${count} more tasks added to the story.`, 'success');
+        const res = await addMoreStorySteps(result.count, result.goal);
+        if (res.success) {
+            showToast('Tasks Added', `${result.count} more tasks added to the story.`, 'success');
         } else {
-            showToast('Error', result.error, 'error');
+            showToast('Error', res.error, 'error');
         }
     } catch (error) {
         showToast('Error', error.message, 'error');

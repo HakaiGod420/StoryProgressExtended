@@ -227,6 +227,64 @@
     margin-bottom: 0.4rem;
 }
 
+/* ==================== Spinner ==================== */
+
+.story-progress-extended__spinner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0;
+    margin-top: 0.3rem;
+}
+
+.story-progress-extended__spinner-dot {
+    width: 0.9rem;
+    height: 0.9rem;
+    border: 2px solid rgba(33, 150, 243, 0.3);
+    border-top-color: #42a5f5;
+    border-radius: 50%;
+    animation: spe-spin 0.8s linear infinite;
+    flex-shrink: 0;
+}
+
+.story-progress-extended__spinner-text {
+    font-size: 0.8rem;
+    opacity: 0.8;
+    color: #64b5f6;
+}
+
+@keyframes spe-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ==================== Modal ==================== */
+
+.story-progress-extended__modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10001;
+    animation: spe-fade-in 0.15s ease;
+}
+
+.story-progress-extended__modal {
+    background: #1e1e2e;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    padding: 1.2rem;
+    width: 22rem;
+    max-width: 90vw;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes spe-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
 /* ==================== Progress ==================== */
 
 .story-progress-extended__progress {
