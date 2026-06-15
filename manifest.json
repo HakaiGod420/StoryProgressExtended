@@ -3,12 +3,12 @@
   "loading_order": 100,
   "requires": [],
   "optional": [],
-  "dependencies": [],
+  "dependencies": ["connection-manager"],
   "js": "index.js",
   "css": "style.css",
-  "author": "TODO",
-  "version": "0.1.0",
-  "homePage": "https://github.com/TODO/StoryProgressExtended",
+  "author": "StoryProgressExtended",
+  "version": "0.2.0",
+  "homePage": "https://github.com/StoryProgressExtended/StoryProgressExtended",
   "auto_update": true,
   "hooks": {
     "activate": "onActivate"
