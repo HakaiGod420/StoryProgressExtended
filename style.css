@@ -189,10 +189,42 @@
     cursor: not-allowed;
 }
 
+.story-progress-extended__btn--back {
+    flex: 1;
+    background-color: rgba(156, 39, 176, 0.2);
+    border-color: rgba(156, 39, 176, 0.35);
+}
+
+.story-progress-extended__btn--back:hover {
+    background-color: rgba(156, 39, 176, 0.4);
+}
+
+.story-progress-extended__btn--back:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.story-progress-extended__btn--filter {
+    width: 100%;
+    font-size: 0.78rem;
+    padding: 0.3rem 0.6rem;
+    background-color: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.story-progress-extended__btn--filter:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
 .story-progress-extended__action-row {
     display: flex;
     gap: 0.5rem;
     margin-top: 0.5rem;
+}
+
+.story-progress-extended__filter-row {
+    display: flex;
+    margin-bottom: 0.4rem;
 }
 
 /* ==================== Progress ==================== */

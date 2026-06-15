@@ -24,6 +24,7 @@ const defaultSettings = Object.freeze({
     numberOfSteps: 5,
     checkInterval: 5,
     autoInject: true,
+    maxAttemptsPerTask: 10,
 });
 
 let isGenerating = false;
@@ -32,7 +33,8 @@ let chatEventsBound = false;
 let profileEventsBound = false;
 let uiInitialized = false;
 let currentPage = 0;
-const TASKS_PER_PAGE = 5;
+const TASKS_PER_PAGE = 3;
+let showIncompleteOnly = false;
 
 // ==================== Context Helper ====================
 
@@ -75,6 +77,7 @@ function createDefaultStoryData() {
         messagesSinceCheck: 0,
         aiMessagesSinceCheck: 0,
         lastCheckedMsgIndex: -1,
+        checkAttempts: 0,
         storyComplete: false,
         isActive: false,
     };
@@ -85,6 +88,10 @@ function migrateStoryData(storyData) {
     let migrated = false;
     if (storyData.lastCheckedMsgIndex === undefined) {
         storyData.lastCheckedMsgIndex = -1;
+        migrated = true;
+    }
+    if (storyData.checkAttempts === undefined) {
+        storyData.checkAttempts = 0;
         migrated = true;
     }
     storyData.storySteps = storyData.storySteps.map((step, i) => {
@@ -367,7 +374,7 @@ function injectSteeringPrompt(context, settings) {
     const task = storyData.storySteps[storyData.currentStepIndex];
     if (!task) { removeSteeringPrompt(); return; }
 
-    const remainingSteps = storyData.storySteps.slice(storyData.currentStepIndex + 1).map(s => ({ title: s.title, description: s.description }));
+    const remainingSteps = storyData.storySteps.slice(storyData.currentStepIndex + 1, storyData.currentStepIndex + 3).map(s => ({ title: s.title, description: s.description }));
 
     const goalsText = buildGoalsSummaryText(task, storyData.currentStepIndex, storyData.storySteps.length, storyData.storyGoal);
     const steeringText = buildSteeringPromptText(task, storyData.currentStepIndex, storyData.storySteps.length, storyData.storyGoal, remainingSteps);
@@ -447,7 +454,6 @@ async function generateStorySteps(storyGoal) {
     if (!settings.connectionProfileId) return { success: false, error: 'No connection profile selected' };
     if (!storyGoal?.trim()) return { success: false, error: 'Please enter a goal' };
 
-    isGenerating = true;
     try {
         const storyData = getStoryData(context);
         const messages = buildTaskGenerationMessages(context, storyGoal.trim(), settings.numberOfSteps || 5);
@@ -483,6 +489,7 @@ async function generateStorySteps(storyGoal) {
         storyData.messagesSinceCheck = 0;
         storyData.aiMessagesSinceCheck = 0;
         storyData.lastCheckedMsgIndex = -1;
+        storyData.checkAttempts = 0;
         storyData.storyComplete = false;
         storyData.isActive = true;
 
@@ -493,8 +500,6 @@ async function generateStorySteps(storyGoal) {
     } catch (error) {
         console.error('[StoryProgressExtended] Error generating tasks:', error);
         return { success: false, error: error.message || 'Unknown error' };
-    } finally {
-        isGenerating = false;
     }
 }
 
@@ -509,7 +514,6 @@ async function addMoreStorySteps(numberOfNewSteps) {
     const storyData = getStoryData(context);
     if (!storyData?.isActive) return { success: false, error: 'No active story' };
 
-    isGenerating = true;
     try {
         const messages = buildAddMoreTasksMessages(context, storyData.storyGoal, storyData.storySteps, numberOfNewSteps);
 
@@ -551,8 +555,6 @@ async function addMoreStorySteps(numberOfNewSteps) {
     } catch (error) {
         console.error('[StoryProgressExtended] Error adding more tasks:', error);
         return { success: false, error: error.message || 'Unknown error' };
-    } finally {
-        isGenerating = false;
     }
 }
 
@@ -570,7 +572,6 @@ async function checkStepCompletion() {
     const task = storyData.storySteps[storyData.currentStepIndex];
     if (!task) return { success: false, error: 'No current task' };
 
-    isChecking = true;
     try {
         const overlapSize = Math.max(2, Math.floor((settings.checkInterval || 5) / 2));
         const lastChecked = storyData.lastCheckedMsgIndex ?? -1;
@@ -599,6 +600,7 @@ async function checkStepCompletion() {
         const cr = parseCompletionFromResponse(responseText);
 
         if (cr.completed) {
+            storyData.checkAttempts = 0;
             storyData.stepsCompleted[storyData.currentStepIndex] = true;
             const next = storyData.currentStepIndex + 1;
             if (next >= storyData.storySteps.length) {
@@ -613,8 +615,27 @@ async function checkStepCompletion() {
                 showToast('Task Completed', `"${task.title}" is done. Next: "${nextTask.title}"`, 'success');
             }
         } else {
-            if (settings.autoInject) injectSteeringPrompt(context, settings);
-            showToast('Not Yet Done', `"${task.title}" \u2014 ${cr.reasoning}`, 'info');
+            storyData.checkAttempts = (storyData.checkAttempts || 0) + 1;
+            const maxAttempts = settings.maxAttemptsPerTask || 10;
+            if (storyData.checkAttempts >= maxAttempts) {
+                storyData.checkAttempts = 0;
+                storyData.stepsCompleted[storyData.currentStepIndex] = true;
+                const next = storyData.currentStepIndex + 1;
+                if (next >= storyData.storySteps.length) {
+                    storyData.storyComplete = true;
+                    storyData.isActive = false;
+                    removeSteeringPrompt();
+                    showToast('Force Completed', `"${task.title}" auto-completed after ${maxAttempts} checks. All tasks finished.`, 'info');
+                } else {
+                    storyData.currentStepIndex = next;
+                    if (settings.autoInject) injectSteeringPrompt(context, settings);
+                    const nextTask = storyData.storySteps[next];
+                    showToast('Force Completed', `"${task.title}" auto-completed after ${maxAttempts} checks. Now: "${nextTask.title}"`, 'info');
+                }
+            } else {
+                if (settings.autoInject) injectSteeringPrompt(context, settings);
+                showToast('Not Yet Done', `"${task.title}" \u2014 ${cr.reasoning} (${storyData.checkAttempts}/${maxAttempts})`, 'info');
+            }
         }
 
         storyData.aiMessagesSinceCheck = 0;
@@ -627,9 +648,6 @@ async function checkStepCompletion() {
     } catch (error) {
         console.error('[StoryProgressExtended] Error checking task:', error);
         return { success: false, error: error.message || 'Unknown error' };
-    } finally {
-        isChecking = false;
-        refreshUI();
     }
 }
 
@@ -803,6 +821,21 @@ function createSettingsPanel() {
     intervalWrapper.append(makeRow('Check Interval', intervalInput.id, [intervalInput], { setting: true }), intervalHint);
     content.append(intervalWrapper);
 
+    // Max Attempts Per Task
+    const maxAttemptsInput = document.createElement('input');
+    maxAttemptsInput.id = 'story_progress_extended_max_attempts';
+    maxAttemptsInput.type = 'number';
+    maxAttemptsInput.min = '1';
+    maxAttemptsInput.max = '50';
+    maxAttemptsInput.value = '10';
+    maxAttemptsInput.className = 'text_pole story-progress-extended__number-input';
+    const maxAttemptsHint = document.createElement('small');
+    maxAttemptsHint.className = 'story-progress-extended__hint';
+    maxAttemptsHint.textContent = 'Auto-complete after N failed checks';
+    const maxAttemptsWrapper = document.createElement('div');
+    maxAttemptsWrapper.append(makeRow('Max Retry Count', maxAttemptsInput.id, [maxAttemptsInput], { setting: true }), maxAttemptsHint);
+    content.append(maxAttemptsWrapper);
+
     // Auto Inject
     const autoInjectCb = document.createElement('input');
     autoInjectCb.id = 'story_progress_extended_auto_inject';
@@ -893,15 +926,29 @@ function createSettingsPanel() {
     skipBtn.className = 'menu_button story-progress-extended__btn story-progress-extended__btn--skip';
     skipBtn.textContent = 'Skip \u2192';
 
+    const backBtn = document.createElement('button');
+    backBtn.id = 'story_progress_extended_back';
+    backBtn.className = 'menu_button story-progress-extended__btn story-progress-extended__btn--back';
+    backBtn.textContent = '\u25C0 Back';
+
     const actionRow = document.createElement('div');
     actionRow.className = 'story-progress-extended__action-row';
-    actionRow.append(checkBtn, skipBtn);
+    actionRow.append(backBtn, checkBtn, skipBtn);
+
+    const filterRow = document.createElement('div');
+    filterRow.className = 'story-progress-extended__filter-row';
+
+    const filterBtn = document.createElement('button');
+    filterBtn.id = 'story_progress_extended_filter';
+    filterBtn.className = 'menu_button story-progress-extended__btn story-progress-extended__btn--filter';
+    filterBtn.textContent = 'Hide Completed';
+    filterRow.append(filterBtn);
 
     const statusText = document.createElement('small');
     statusText.id = 'story_progress_extended_progress_status';
     statusText.className = 'story-progress-extended__status';
 
-    progressSection.append(progressHeader, progressBarContainer, goalBanner, tasksList, actionRow, statusText);
+    progressSection.append(progressHeader, progressBarContainer, goalBanner, filterRow, tasksList, actionRow, statusText);
     content.append(progressSection);
 
     drawer.append(toggle, content);
@@ -953,7 +1000,19 @@ function renderTaskList(storyData) {
         return;
     }
 
-    const totalTasks = storyData.storySteps.length;
+    let indices = storyData.storySteps.map((_, i) => i);
+    if (showIncompleteOnly) {
+        indices = indices.filter(i => !(storyData.stepsCompleted?.[i] || false));
+        if (indices.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'story-progress-extended__empty';
+            empty.textContent = 'All tasks completed!';
+            list.append(empty);
+            return;
+        }
+    }
+
+    const totalTasks = indices.length;
     const totalPages = Math.ceil(totalTasks / TASKS_PER_PAGE);
 
     if (currentPage >= totalPages) currentPage = totalPages - 1;
@@ -962,7 +1021,8 @@ function renderTaskList(storyData) {
     const startIdx = currentPage * TASKS_PER_PAGE;
     const endIdx = Math.min(startIdx + TASKS_PER_PAGE, totalTasks);
 
-    for (let index = startIdx; index < endIdx; index++) {
+    for (let i = startIdx; i < endIdx; i++) {
+        const index = indices[i];
         const task = storyData.storySteps[index];
         const isDone = storyData.stepsCompleted?.[index] || false;
         const isCurrent = index === storyData.currentStepIndex && !storyData.storyComplete;
@@ -1158,6 +1218,8 @@ function refreshUI() {
     if (ii) ii.value = settings.checkInterval;
     const ai = el('story_progress_extended_auto_inject');
     if (ai) ai.checked = settings.autoInject;
+    const ma = el('story_progress_extended_max_attempts');
+    if (ma) ma.value = settings.maxAttemptsPerTask || 10;
     const gt = el('story_progress_extended_goal');
     if (gt && storyData) gt.value = storyData.storyGoal || '';
 
@@ -1179,14 +1241,20 @@ function refreshUI() {
     }
     if (ab) ab.disabled = !storyData.isActive || isGenerating;
     const sb = el('story_progress_extended_skip');
-    if (sb) sb.disabled = !storyData.isActive || storyData.storyComplete;
+    if (sb) sb.disabled = !storyData.isActive || storyData.storyComplete || isGenerating || isChecking;
+    const bb = el('story_progress_extended_back');
+    if (bb) bb.disabled = !storyData || storyData.currentStepIndex <= 0;
+    const fb = el('story_progress_extended_filter');
+    if (fb) fb.textContent = showIncompleteOnly ? 'Show All' : 'Hide Completed';
 }
 
 async function onGenerateClick() {
     const goalTextarea = document.getElementById('story_progress_extended_goal');
     const storyGoal = goalTextarea?.value?.trim();
     if (!storyGoal) { setStatus('Please enter a narrative goal first.'); return; }
+    if (isGenerating) return;
 
+    isGenerating = true;
     refreshUI();
 
     try {
@@ -1198,21 +1266,26 @@ async function onGenerateClick() {
         }
     } catch (error) {
         showToast('Error', error.message, 'error');
+    } finally {
+        isGenerating = false;
+        refreshUI();
     }
-
-    refreshUI();
 }
 
 async function onCheckClick() {
+    if (isChecking || isGenerating) return;
+
+    isChecking = true;
     refreshUI();
 
     try {
         await checkStepCompletion();
     } catch (error) {
         setStatus(`Check error: ${error.message}`);
+    } finally {
+        isChecking = false;
+        refreshUI();
     }
-
-    refreshUI();
 }
 
 function onSkipClick() {
@@ -1226,6 +1299,7 @@ function onSkipClick() {
     if (!task) return;
 
     storyData.stepsCompleted[storyData.currentStepIndex] = true;
+    storyData.checkAttempts = 0;
     const next = storyData.currentStepIndex + 1;
     if (next >= storyData.storySteps.length) {
         storyData.storyComplete = true;
@@ -1244,9 +1318,39 @@ function onSkipClick() {
     refreshUI();
 }
 
+function onBackClick() {
+    const context = getContextSafely();
+    if (!context) return;
+    const settings = getSettings(context);
+    const storyData = getStoryData(context);
+    if (!storyData) return;
+    if (storyData.currentStepIndex <= 0) return;
+
+    const prev = storyData.currentStepIndex - 1;
+    storyData.currentStepIndex = prev;
+    storyData.stepsCompleted[prev] = false;
+    storyData.checkAttempts = 0;
+
+    if (storyData.storyComplete) {
+        storyData.storyComplete = false;
+        storyData.isActive = true;
+    }
+
+    if (settings.autoInject) injectSteeringPrompt(context, settings);
+    const task = storyData.storySteps[prev];
+    showToast('Went Back', `Now on task: "${task?.title || prev + 1}"`, 'info');
+
+    saveStoryData(context);
+    refreshUI();
+}
+
 async function onAddMoreClick() {
+    if (isGenerating) return;
     const stepsInput = document.getElementById('story_progress_extended_steps');
     const count = parseInt(stepsInput?.value, 10) || 3;
+
+    isGenerating = true;
+    refreshUI();
 
     try {
         const result = await addMoreStorySteps(count);
@@ -1257,15 +1361,22 @@ async function onAddMoreClick() {
         }
     } catch (error) {
         showToast('Error', error.message, 'error');
+    } finally {
+        isGenerating = false;
+        refreshUI();
     }
-
-    refreshUI();
 }
 
 function onResetClick() {
     resetStory();
     refreshUI();
     setStatus('Progress reset.');
+}
+
+function onFilterToggle() {
+    showIncompleteOnly = !showIncompleteOnly;
+    currentPage = 0;
+    refreshUI();
 }
 
 // ==================== Event Binding ====================
@@ -1320,10 +1431,21 @@ function bindEvents(context, settings) {
     bind('story_progress_extended_reset', 'click', onResetClick);
     bind('story_progress_extended_check', 'click', onCheckClick);
     bind('story_progress_extended_skip', 'click', onSkipClick);
+    bind('story_progress_extended_back', 'click', onBackClick);
+    bind('story_progress_extended_filter', 'click', onFilterToggle);
 
     bind('story_progress_extended_goal', 'input', function () {
         const sd = getStoryData(context);
         if (sd) sd.storyGoal = this.value;
+    });
+
+    bind('story_progress_extended_max_attempts', 'change', function () {
+        let v = parseInt(this.value, 10);
+        if (isNaN(v) || v < 1) v = 1;
+        if (v > 50) v = 50;
+        this.value = v;
+        settings.maxAttemptsPerTask = v;
+        context.saveSettingsDebounced?.();
     });
 }
 

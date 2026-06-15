@@ -11,9 +11,12 @@ A SillyTavern extension that turns your narrative goals into actionable task lis
 - **Dual Context Injection** — Goals are injected before the chat history (so the AI sees them first) and a steering reminder is injected after (so the AI doesn't drift)
 - **Pre-Send Goal Injection** — Goals are re-injected before every user message via the `MESSAGE_SENT` event, guaranteeing the AI always has context
 - **Manual Skip** — Skip the current task and move to the next without waiting for AI verification
+- **Manual Go Back** — Go back to the previous task and re-open it as pending
 - **Add More Tasks** — Append additional tasks to an existing plan without regenerating from scratch
 - **Delete Tasks** — Remove individual tasks from the list with automatic index adjustment
-- **Pagination** — Long task lists are paginated (5 per page) with prev/next navigation
+- **Filter: Hide Completed** — Toggle to show only incomplete tasks (3 per page)
+- **Auto-Complete Stuck Tasks** — If a task fails N completion checks (configurable, default 10), it is force-completed and the story advances
+- **Pagination** — Long task lists are paginated (3 per page) with prev/next navigation
 - **Toast Notifications** — Non-blocking notifications via SillyTavern's built-in toastr (top-center, auto-dismiss)
 - **Connection Profile Support** — Uses SillyTavern's Connection Manager for API calls; falls back to `generateQuietPrompt` if unavailable
 
@@ -66,6 +69,7 @@ A SillyTavern extension that turns your narrative goals into actionable task lis
 | **Number of Tasks** | 5 | How many tasks to generate from your goal |
 | **Check Interval** | 5 | AI messages between automatic completion checks |
 | **Auto-Inject Steering** | On | Automatically inject goal/task context into the AI prompt |
+| **Max Retry Count** | 10 | Auto-complete a task after this many failed checks (prevents stuck tasks) |
 
 ### Buttons
 
@@ -74,8 +78,10 @@ A SillyTavern extension that turns your narrative goals into actionable task lis
 | **Generate Tasks** | Generates a new task list from the narrative goal |
 | **Add Tasks** | Appends N more tasks to the existing list (uses "Number of Tasks" setting) |
 | **Reset** | Clears all tasks and progress for the current chat |
+| **◀ Back** | Go back to the previous task (re-opens it as pending) |
 | **Check Now** | Manually trigger a completion check for the current task |
 | **Skip →** | Skip the current task and advance to the next (no AI verification) |
+| **Hide Completed** | Toggle filter to show only incomplete tasks (3 per page) |
 
 ### Task Cards
 
@@ -124,16 +130,15 @@ The extension uses two injection points in SillyTavern's prompt assembly:
    → Retrieve the Artifact: Find and take the artifact
    → Return to Village: Bring the artifact back to the elder
 
-   You MUST actively steer the roleplay toward completing the current task...
-   ```
-   This reminds the AI of the full roadmap right before generating a response.
+    You MUST actively steer the roleplay toward completing the current task...
+    ```
+    This reminds the AI of the near-future roadmap right before generating a response.
 
 ### Completion Checking
 
-- Every N AI messages (configurable), the extension sends the recent chat history to the AI and asks whether the current task has been completed
+- Every N AI messages (configurable), the extension sends recent chat history to the AI and asks whether the current task has been completed
 - **Overlapping windows**: Instead of re-evaluating all messages each time, the extension checks only new messages since the last check, with an overlap of ~50% of the check interval for context continuity
-- First check: evaluates the full conversation
-- Subsequent checks: evaluates messages from `lastCheckedIndex - overlap` to current
+- **Auto-complete stuck tasks**: If a task fails completion checks N times in a row (configurable via "Max Retry Count", default 10), the extension force-completes it and advances to the next task. This prevents the story from getting stuck on one task indefinitely. A toast shows the attempt count.
 - The evaluator AI responds with `{"completed": true/false, "reasoning": "..."}`
 
 ### Data Storage
