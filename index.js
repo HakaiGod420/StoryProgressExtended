@@ -28,6 +28,8 @@ let isChecking = false;
 let chatEventsBound = false;
 let profileEventsBound = false;
 let uiInitialized = false;
+let currentPage = 0;
+const TASKS_PER_PAGE = 5;
 
 // ==================== Context Helper ====================
 
@@ -172,6 +174,36 @@ Rules:
     ];
 }
 
+function buildAddMoreTasksMessages(context, storyGoal, existingSteps, numberOfNewSteps) {
+    const characterContext = getCharacterContext(context);
+    const chatContext = getChatContext(context);
+
+    const tasksSummary = existingSteps.map((s, i) => `${i + 1}. ${s.title}: ${s.description}`).join('\n');
+
+    const systemContent = `You are a task planning assistant for interactive roleplay. Your job is to generate additional tasks that continue an existing plan.
+
+You must respond ONLY with valid JSON, nothing else:
+{"tasks": [{"title": "Short Task Title", "description": "What exactly needs to happen to complete this task"}]}
+
+Rules:
+- Each task must be a clear, actionable objective that can be definitively accomplished
+- Tasks are sequential: each builds on the previous one
+- Generate exactly ${numberOfNewSteps} tasks that continue naturally after the existing ones
+- The title should be 2-6 words summarizing the task
+- The description should be 1-3 sentences explaining what must happen
+- Tasks should feel natural within the roleplay, not forced`;
+
+    let userContent = `Narrative Goal: ${storyGoal}\n\nExisting Tasks:\n${tasksSummary}\n\n`;
+    if (characterContext) userContent += `--- Character Context ---\n${characterContext}\n\n`;
+    if (chatContext) userContent += `--- Recent Chat History ---\n${chatContext}\n\n`;
+    userContent += `Generate ${numberOfNewSteps} more tasks that continue from the existing ones. Respond with JSON only.`;
+
+    return [
+        { role: 'system', content: systemContent },
+        { role: 'user', content: userContent },
+    ];
+}
+
 function buildCompletionCheckMessages(context, task, currentStepIndex) {
     const characterContext = getCharacterContext(context);
     const chatContext = getChatContext(context);
@@ -194,13 +226,25 @@ A task is "completed" only when its described objective has clearly and fully be
     ];
 }
 
-function buildSteeringPromptText(task, currentStepIndex, totalSteps, storyGoal) {
-    return [
+function buildSteeringPromptText(task, currentStepIndex, totalSteps, storyGoal, remainingSteps) {
+    const lines = [
         `[Story Progress \u2014 Task ${currentStepIndex + 1}/${totalSteps}: "${task.title}"]`,
         `Overall Goal: ${storyGoal}`,
         `Current Task: ${task.title} \u2014 ${task.description}`,
-        `You MUST actively steer the roleplay toward completing this task. Ensure the characters' actions, dialogue, and events directly progress toward this objective. This is a required goal, not optional guidance. Do not ignore it or move on without achieving it.`,
-    ].join('\n');
+    ];
+
+    if (remainingSteps && remainingSteps.length > 0) {
+        lines.push('');
+        lines.push('Upcoming Tasks:');
+        for (const rs of remainingSteps) {
+            lines.push(`\u2192 ${rs.title}: ${rs.description}`);
+        }
+    }
+
+    lines.push('');
+    lines.push('You MUST actively steer the roleplay toward completing the current task. Ensure the characters\' actions, dialogue, and events directly progress toward this objective. This is a required goal, not optional guidance. Do not ignore it or move on without achieving it.');
+
+    return lines.join('\n');
 }
 
 // ==================== Response Parsers ====================
@@ -292,7 +336,8 @@ function injectSteeringPrompt(context, settings) {
     const task = storyData.storySteps[storyData.currentStepIndex];
     if (!task) { removeSteeringPrompt(); return; }
 
-    const text = buildSteeringPromptText(task, storyData.currentStepIndex, storyData.storySteps.length, storyData.storyGoal);
+    const remainingSteps = storyData.storySteps.slice(storyData.currentStepIndex + 1).map(s => ({ title: s.title, description: s.description }));
+    const text = buildSteeringPromptText(task, storyData.currentStepIndex, storyData.storySteps.length, storyData.storyGoal, remainingSteps);
     try {
         context.setExtensionPrompt(EXTENSION_PROMPT_KEY, text, PROMPT_POSITION_AFTER, PROMPT_DEPTH, true, PROMPT_ROLE_SYSTEM);
     } catch (err) {
@@ -344,51 +389,15 @@ function getSortedProfilesByGroup(context, profiles) {
     return groups;
 }
 
-// ==================== Popup Helper ====================
+// ==================== Toast Helper ====================
 
-function showPopup(title, body, type) {
-    const ctx = getContextSafely();
-    if (!ctx) return;
-
-    if (typeof ctx.callGenericPopup === 'function') {
-        const POPUP_TYPE = ctx.POPUP_TYPE || {};
-        const popupType = type === 'success' ? (POPUP_TYPE.TEXT || 1) : (POPUP_TYPE.TEXT || 1);
-        ctx.callGenericPopup(
-            `<div class="story-progress-extended__popup-content story-progress-extended__popup-content--${type}"><h3>${title}</h3><p>${body}</p></div>`,
-            popupType,
-            '',
-            { okButton: 'Close', wide: false },
-        );
+function showToast(title, body, type) {
+    if (typeof toastr !== 'undefined') {
+        const method = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+        toastr[method](body, title, { timeOut: 4000 });
     } else {
-        showInlineNotification(title, body, type);
+        console.log(`[StoryProgressExtended] [${type}] ${title}: ${body}`);
     }
-}
-
-function showInlineNotification(title, body, type) {
-    const existing = document.getElementById('story_progress_extended_notification');
-    if (existing) existing.remove();
-
-    const notification = document.createElement('div');
-    notification.id = 'story_progress_extended_notification';
-    notification.className = `story-progress-extended__notification story-progress-extended__notification--${type}`;
-
-    const titleEl = document.createElement('strong');
-    titleEl.textContent = title;
-
-    const bodyEl = document.createElement('span');
-    bodyEl.textContent = body;
-
-    const closeBtn = document.createElement('span');
-    closeBtn.className = 'story-progress-extended__notification-close';
-    closeBtn.textContent = '\u2715';
-    closeBtn.addEventListener('click', () => notification.remove());
-
-    notification.append(titleEl, bodyEl, closeBtn);
-    document.body.append(notification);
-
-    setTimeout(() => {
-        if (notification.parentNode) notification.remove();
-    }, 5000);
 }
 
 // ==================== Story Manager ====================
@@ -452,6 +461,64 @@ async function generateStorySteps(storyGoal) {
     }
 }
 
+async function addMoreStorySteps(numberOfNewSteps) {
+    const context = getContextSafely();
+    if (!context) return { success: false, error: 'Context unavailable' };
+    if (isGenerating) return { success: false, error: 'Already generating' };
+
+    const settings = getSettings(context);
+    if (!settings.connectionProfileId) return { success: false, error: 'No connection profile selected' };
+
+    const storyData = getStoryData(context);
+    if (!storyData?.isActive) return { success: false, error: 'No active story' };
+
+    isGenerating = true;
+    try {
+        const messages = buildAddMoreTasksMessages(context, storyData.storyGoal, storyData.storySteps, numberOfNewSteps);
+
+        const apiMap = context.CONNECT_API_MAP?.[getProfileApi(context, settings.connectionProfileId)];
+        const isCC = apiMap?.selected === 'openai';
+
+        let result;
+        if (typeof context.ConnectionManagerRequestService?.sendRequest === 'function') {
+            result = await context.ConnectionManagerRequestService.sendRequest(
+                settings.connectionProfileId,
+                isCC ? messages : messages.map(m => `${m.role}: ${m.content}`).join('\n\n'),
+                2048,
+                { stream: false, extractData: true, includePreset: true },
+            );
+        } else {
+            const qp = messages.map(m => m.content).join('\n\n');
+            const resp = await context.generateQuietPrompt({ quietPrompt: qp, skipWIAN: true, responseLength: 2048 });
+            result = { content: resp, reasoning: '' };
+        }
+
+        const responseText = result?.content || result?.text || (typeof result === 'string' ? result : '');
+        const tasks = parseTasksFromResponse(responseText);
+
+        if (!tasks || tasks.length === 0) {
+            return { success: false, error: 'Failed to parse new tasks from AI response. Try again.' };
+        }
+
+        storyData.storySteps.push(...tasks);
+        for (let i = 0; i < tasks.length; i++) storyData.stepsCompleted.push(false);
+        if (storyData.storyComplete) {
+            storyData.storyComplete = false;
+            storyData.isActive = true;
+        }
+
+        saveStoryData(context);
+        if (settings.autoInject) injectSteeringPrompt(context, settings);
+
+        return { success: true, data: storyData };
+    } catch (error) {
+        console.error('[StoryProgressExtended] Error adding more tasks:', error);
+        return { success: false, error: error.message || 'Unknown error' };
+    } finally {
+        isGenerating = false;
+    }
+}
+
 async function checkStepCompletion() {
     const context = getContextSafely();
     if (!context) return { success: false, error: 'Context unavailable' };
@@ -497,21 +564,22 @@ async function checkStepCompletion() {
                 storyData.storyComplete = true;
                 storyData.isActive = false;
                 removeSteeringPrompt();
-                showPopup('All Tasks Complete!', `"${storyData.storyGoal}" has been achieved. All ${storyData.storySteps.length} tasks finished.`, 'success');
+                showToast('All Tasks Complete!', `"${storyData.storyGoal}" has been achieved. All ${storyData.storySteps.length} tasks finished.`, 'success');
             } else {
                 storyData.currentStepIndex = next;
                 if (settings.autoInject) injectSteeringPrompt(context, settings);
                 const nextTask = storyData.storySteps[next];
-                showPopup('Task Completed', `"${task.title}" is done. Next: "${nextTask.title}"`, 'success');
+                showToast('Task Completed', `"${task.title}" is done. Next: "${nextTask.title}"`, 'success');
             }
         } else {
             if (settings.autoInject) injectSteeringPrompt(context, settings);
-            showPopup('Not Yet Done', `"${task.title}" \u2014 ${cr.reasoning}`, 'info');
+            showToast('Not Yet Done', `"${task.title}" \u2014 ${cr.reasoning}`, 'info');
         }
 
         storyData.aiMessagesSinceCheck = 0;
         storyData.messagesSinceCheck = 0;
         saveStoryData(context);
+        refreshUI();
 
         return { success: true, completed: cr.completed, reasoning: cr.reasoning, data: storyData };
     } catch (error) {
@@ -519,6 +587,7 @@ async function checkStepCompletion() {
         return { success: false, error: error.message || 'Unknown error' };
     } finally {
         isChecking = false;
+        refreshUI();
     }
 }
 
@@ -727,12 +796,17 @@ function createSettingsPanel() {
     generateBtn.className = 'menu_button story-progress-extended__btn story-progress-extended__btn--generate';
     generateBtn.textContent = 'Generate Tasks';
 
+    const addMoreBtn = document.createElement('button');
+    addMoreBtn.id = 'story_progress_extended_add_more';
+    addMoreBtn.className = 'menu_button story-progress-extended__btn story-progress-extended__btn--add-more';
+    addMoreBtn.textContent = 'Add Tasks';
+
     const resetBtn = document.createElement('button');
     resetBtn.id = 'story_progress_extended_reset';
     resetBtn.className = 'menu_button story-progress-extended__btn story-progress-extended__btn--reset';
     resetBtn.textContent = 'Reset';
 
-    buttonRow.append(generateBtn, resetBtn);
+    buttonRow.append(generateBtn, addMoreBtn, resetBtn);
     goalSection.append(goalLabel, goalTextarea, buttonRow);
     content.append(goalSection);
 
@@ -828,7 +902,17 @@ function renderTaskList(storyData) {
         return;
     }
 
-    storyData.storySteps.forEach((task, index) => {
+    const totalTasks = storyData.storySteps.length;
+    const totalPages = Math.ceil(totalTasks / TASKS_PER_PAGE);
+
+    if (currentPage >= totalPages) currentPage = totalPages - 1;
+    if (currentPage < 0) currentPage = 0;
+
+    const startIdx = currentPage * TASKS_PER_PAGE;
+    const endIdx = Math.min(startIdx + TASKS_PER_PAGE, totalTasks);
+
+    for (let index = startIdx; index < endIdx; index++) {
+        const task = storyData.storySteps[index];
         const isDone = storyData.stepsCompleted?.[index] || false;
         const isCurrent = index === storyData.currentStepIndex && !storyData.storyComplete;
 
@@ -861,7 +945,14 @@ function renderTaskList(storyData) {
             label.textContent = 'Pending';
         }
 
-        header.append(number, label);
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'story-progress-extended__step-delete menu_button';
+        deleteBtn.textContent = '\u2715';
+        deleteBtn.title = 'Delete this task';
+        deleteBtn.dataset.stepIndex = String(index);
+        deleteBtn.addEventListener('click', onDeleteStep);
+
+        header.append(number, label, deleteBtn);
 
         const titleInput = document.createElement('input');
         titleInput.type = 'text';
@@ -885,7 +976,37 @@ function renderTaskList(storyData) {
 
         card.append(header, titleInput, descTextarea);
         list.append(card);
-    });
+    }
+
+    if (totalPages > 1) {
+        const paginationRow = document.createElement('div');
+        paginationRow.className = 'story-progress-extended__pagination';
+
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'menu_button story-progress-extended__pagination-btn';
+        prevBtn.textContent = '\u25C0 Prev';
+        prevBtn.disabled = currentPage <= 0;
+        prevBtn.addEventListener('click', () => {
+            currentPage--;
+            renderTaskList(getStoryData(getContextSafely()));
+        });
+
+        const pageInfo = document.createElement('span');
+        pageInfo.className = 'story-progress-extended__pagination-info';
+        pageInfo.textContent = `Page ${currentPage + 1}/${totalPages}`;
+
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'menu_button story-progress-extended__pagination-btn';
+        nextBtn.textContent = 'Next \u25B6';
+        nextBtn.disabled = currentPage >= totalPages - 1;
+        nextBtn.addEventListener('click', () => {
+            currentPage++;
+            renderTaskList(getStoryData(getContextSafely()));
+        });
+
+        paginationRow.append(prevBtn, pageInfo, nextBtn);
+        list.append(paginationRow);
+    }
 }
 
 function onTaskFieldEdit(event) {
@@ -898,6 +1019,33 @@ function onTaskFieldEdit(event) {
     if (!storyData?.storySteps?.[index]) return;
     storyData.storySteps[index][field] = el.value;
     context.saveMetadataDebounced?.();
+}
+
+function onDeleteStep(event) {
+    const context = getContextSafely();
+    if (!context) return;
+    const index = parseInt(event.currentTarget.dataset.stepIndex, 10);
+    const storyData = getStoryData(context);
+    if (!storyData?.storySteps?.[index]) return;
+
+    storyData.storySteps.splice(index, 1);
+    storyData.stepsCompleted.splice(index, 1);
+
+    if (storyData.storySteps.length === 0) {
+        storyData.currentStepIndex = 0;
+        storyData.storyComplete = false;
+        storyData.isActive = false;
+        removeSteeringPrompt();
+    } else if (index < storyData.currentStepIndex) {
+        storyData.currentStepIndex--;
+    } else if (index === storyData.currentStepIndex) {
+        if (storyData.currentStepIndex >= storyData.storySteps.length) {
+            storyData.currentStepIndex = storyData.storySteps.length - 1;
+        }
+    }
+
+    saveStoryData(context);
+    refreshUI();
 }
 
 // ==================== UI Update ====================
@@ -955,8 +1103,8 @@ function refreshUI() {
     const storyData = getStoryData(context);
 
     const el = (id) => document.getElementById(id);
-    const cb = el('story_progress_extended_enabled');
-    if (cb) cb.checked = settings.enabled;
+    const enabledCb = el('story_progress_extended_enabled');
+    if (enabledCb) enabledCb.checked = settings.enabled;
     const si = el('story_progress_extended_steps');
     if (si) si.value = settings.numberOfSteps;
     const ii = el('story_progress_extended_interval');
@@ -971,8 +1119,18 @@ function refreshUI() {
 
     const gb = el('story_progress_extended_generate');
     const rb = el('story_progress_extended_reset');
-    if (gb) gb.disabled = !settings.connectionProfileId;
-    if (rb && storyData) rb.disabled = !storyData.storyGoal && !storyData.isActive;
+    const checkBtn = el('story_progress_extended_check');
+    const ab = el('story_progress_extended_add_more');
+    if (gb) {
+        gb.disabled = !settings.connectionProfileId || isGenerating;
+        gb.textContent = isGenerating ? 'Generating...' : 'Generate Tasks';
+    }
+    if (rb) rb.disabled = (!storyData.storyGoal && !storyData.isActive) || isGenerating;
+    if (checkBtn) {
+        checkBtn.disabled = !storyData.isActive || storyData.storyComplete || isChecking;
+        checkBtn.textContent = isChecking ? 'Checking...' : 'Check Now';
+    }
+    if (ab) ab.disabled = !storyData.isActive || isGenerating;
 }
 
 async function onGenerateClick() {
@@ -980,24 +1138,24 @@ async function onGenerateClick() {
     const storyGoal = goalTextarea?.value?.trim();
     if (!storyGoal) { setStatus('Please enter a narrative goal first.'); return; }
 
-    const btn = document.getElementById('story_progress_extended_generate');
-    if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
+    refreshUI();
 
     try {
         const result = await generateStorySteps(storyGoal);
-        if (result.success) setStatus('Tasks generated successfully!');
-        else setStatus(`Error: ${result.error}`);
+        if (result.success) {
+            showToast('Tasks Generated', 'Tasks generated successfully!', 'success');
+        } else {
+            showToast('Error', result.error, 'error');
+        }
     } catch (error) {
-        setStatus(`Error: ${error.message}`);
+        showToast('Error', error.message, 'error');
     }
 
-    if (btn) { btn.disabled = false; btn.textContent = 'Generate Tasks'; }
     refreshUI();
 }
 
 async function onCheckClick() {
-    const btn = document.getElementById('story_progress_extended_check');
-    if (btn) { btn.disabled = true; btn.textContent = 'Checking...'; }
+    refreshUI();
 
     try {
         await checkStepCompletion();
@@ -1005,7 +1163,24 @@ async function onCheckClick() {
         setStatus(`Check error: ${error.message}`);
     }
 
-    if (btn) { btn.disabled = false; btn.textContent = 'Check Now'; }
+    refreshUI();
+}
+
+async function onAddMoreClick() {
+    const stepsInput = document.getElementById('story_progress_extended_steps');
+    const count = parseInt(stepsInput?.value, 10) || 3;
+
+    try {
+        const result = await addMoreStorySteps(count);
+        if (result.success) {
+            showToast('Tasks Added', `${count} more tasks added to the story.`, 'success');
+        } else {
+            showToast('Error', result.error, 'error');
+        }
+    } catch (error) {
+        showToast('Error', error.message, 'error');
+    }
+
     refreshUI();
 }
 
@@ -1063,6 +1238,7 @@ function bindEvents(context, settings) {
     });
 
     bind('story_progress_extended_generate', 'click', onGenerateClick);
+    bind('story_progress_extended_add_more', 'click', onAddMoreClick);
     bind('story_progress_extended_reset', 'click', onResetClick);
     bind('story_progress_extended_check', 'click', onCheckClick);
 
