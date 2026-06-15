@@ -1,0 +1,16 @@
+{
+  "display_name": "Story Progress Extended",
+  "loading_order": 100,
+  "requires": [],
+  "optional": [],
+  "dependencies": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "TODO",
+  "version": "0.1.0",
+  "homePage": "https://github.com/TODO/StoryProgressExtended",
+  "auto_update": true,
+  "hooks": {
+    "activate": "onActivate"
+  }
+}

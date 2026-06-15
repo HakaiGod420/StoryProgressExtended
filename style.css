@@ -1,0 +1,9 @@
+.story-progress-extended {
+    box-sizing: border-box;
+}
+
+.story-progress-extended *,
+.story-progress-extended *::before,
+.story-progress-extended *::after {
+    box-sizing: inherit;
+}
