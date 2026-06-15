@@ -789,12 +789,13 @@ function ensureSettingsPanel() {
 
 function initUI(context, settings) {
     if (!ensureSettingsPanel()) {
-        return;
+        return false;
     }
 
     bindEvents(context, settings);
     bindConnectionProfileEvents(context);
     refreshUI();
+    return true;
 }
 
 export {

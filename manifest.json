@@ -3,7 +3,7 @@
   "loading_order": 100,
   "requires": [],
   "optional": [],
-  "dependencies": ["connection-manager"],
+  "dependencies": [],
   "js": "index.js",
   "css": "style.css",
   "author": "StoryProgressExtended",
