@@ -177,13 +177,15 @@ function buildTaskGenerationMessages(context, storyGoal, numberOfSteps) {
     const characterContext = getCharacterContext(context);
     const chatContext = getChatContext(context);
 
-    const systemContent = `You are a task planning assistant for interactive roleplay. You analyze the CURRENT conversation and generate concrete, actionable tasks that lead from the current situation toward the narrative goal.
+    const systemContent = `You are a task planning assistant for interactive roleplay. You analyze the CURRENT conversation and generate concrete, actionable tasks that describe what needs to happen in the STORY WORLD — from the characters' perspective and the world's changes.
 
 You must respond ONLY with valid JSON, nothing else:
 {"tasks": [{"title": "Short Task Title", "description": "What exactly needs to happen to complete this task"}]}
 
 Rules:
 - First, understand what is happening RIGHT NOW in the conversation. Where are the characters? What are they doing?
+- Tasks describe events in the story WORLD — what the characters must do, what must change in the world, what situations must arise.
+- Do NOT reference the user or player. Tasks are about the story, not the player's actions.
 - Task 1 MUST be a natural next step from the current situation. If characters are fighting, Task 1 should start from the fight — not ignore it. If they are in a village, Task 1 starts there.
 - Each subsequent task builds sequentially toward the narrative goal.
 - Generate exactly ${numberOfSteps} tasks.
@@ -557,7 +559,7 @@ async function addMoreStorySteps(numberOfNewSteps, customGoal) {
     }
 }
 
-async function checkStepCompletion() {
+async function checkStepCompletion(silent) {
     const context = getContextSafely();
     if (!context) return { success: false, error: 'Context unavailable' };
 
@@ -609,8 +611,10 @@ async function checkStepCompletion() {
             } else {
                 storyData.currentStepIndex = next;
                 if (settings.autoInject) injectSteeringPrompt(context, settings);
-                const nextTask = storyData.storySteps[next];
-                showToast('Task Completed', `"${task.title}" is done. Next: "${nextTask.title}"`, 'success');
+                if (!silent) {
+                    const nextTask = storyData.storySteps[next];
+                    showToast('Task Completed', `"${task.title}" is done. Next: "${nextTask.title}"`, 'success');
+                }
             }
         } else {
             storyData.checkAttempts = (storyData.checkAttempts || 0) + 1;
@@ -627,12 +631,13 @@ async function checkStepCompletion() {
                 } else {
                     storyData.currentStepIndex = next;
                     if (settings.autoInject) injectSteeringPrompt(context, settings);
-                    const nextTask = storyData.storySteps[next];
-                    showToast('Force Completed', `"${task.title}" auto-completed after ${maxAttempts} checks. Now: "${nextTask.title}"`, 'info');
+                    showToast('Force Completed', `"${task.title}" auto-completed after ${maxAttempts} checks.`, 'info');
                 }
             } else {
                 if (settings.autoInject) injectSteeringPrompt(context, settings);
-                showToast('Not Yet Done', `"${task.title}" \u2014 ${cr.reasoning} (${storyData.checkAttempts}/${maxAttempts})`, 'info');
+                if (!silent) {
+                    showToast('Not Yet Done', `"${task.title}" \u2014 ${cr.reasoning} (${storyData.checkAttempts}/${maxAttempts})`, 'info');
+                }
             }
         }
 
@@ -681,7 +686,7 @@ async function onAIMessage() {
 
     const checkInterval = settings.checkInterval || 5;
     if (storyData.aiMessagesSinceCheck >= checkInterval) {
-        await checkStepCompletion();
+        await checkStepCompletion(true);
     }
 }
 
