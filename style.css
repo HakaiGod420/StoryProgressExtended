@@ -160,8 +160,7 @@
 }
 
 .story-progress-extended__btn--check {
-    margin-top: 0.5rem;
-    width: 100%;
+    flex: 2;
     background-color: rgba(33, 150, 243, 0.2);
     border-color: rgba(33, 150, 243, 0.35);
 }
@@ -173,6 +172,27 @@
 .story-progress-extended__btn--check:disabled {
     opacity: 0.35;
     cursor: not-allowed;
+}
+
+.story-progress-extended__btn--skip {
+    flex: 1;
+    background-color: rgba(255, 193, 7, 0.2);
+    border-color: rgba(255, 193, 7, 0.35);
+}
+
+.story-progress-extended__btn--skip:hover {
+    background-color: rgba(255, 193, 7, 0.4);
+}
+
+.story-progress-extended__btn--skip:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.story-progress-extended__action-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
 }
 
 /* ==================== Progress ==================== */

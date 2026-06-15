@@ -4,8 +4,11 @@ const SETTINGS_PANEL_ID = 'story_progress_extended_settings';
 const PROFILE_SELECT_ID = 'story_progress_extended_connection_profile';
 const PROFILE_STATUS_ID = 'story_progress_extended_profile_status';
 const EXTENSION_PROMPT_KEY = MODULE_NAME;
+const EXTENSION_PROMPT_KEY_GOALS = MODULE_NAME + '_goals';
+const PROMPT_POSITION_BEFORE = 1;
 const PROMPT_POSITION_AFTER = 2;
 const PROMPT_DEPTH = 2;
+const PROMPT_DEPTH_BEFORE = 0;
 const PROMPT_ROLE_SYSTEM = 0;
 const MAX_CHAT_MESSAGES_FOR_CONTEXT = 30;
 
@@ -71,6 +74,7 @@ function createDefaultStoryData() {
         stepsCompleted: [],
         messagesSinceCheck: 0,
         aiMessagesSinceCheck: 0,
+        lastCheckedMsgIndex: -1,
         storyComplete: false,
         isActive: false,
     };
@@ -79,6 +83,10 @@ function createDefaultStoryData() {
 function migrateStoryData(storyData) {
     if (!storyData?.storySteps) return storyData;
     let migrated = false;
+    if (storyData.lastCheckedMsgIndex === undefined) {
+        storyData.lastCheckedMsgIndex = -1;
+        migrated = true;
+    }
     storyData.storySteps = storyData.storySteps.map((step, i) => {
         if (typeof step === 'string') {
             migrated = true;
@@ -138,6 +146,19 @@ function getChatContext(context, maxMessages) {
     if (!Array.isArray(chat) || chat.length === 0) return '';
     const limit = maxMessages || MAX_CHAT_MESSAGES_FOR_CONTEXT;
     return chat.slice(-limit).map(msg => {
+        const sender = msg.is_user ? context.name1 : msg.name || context.name2;
+        return `${sender}: ${msg.mes || ''}`;
+    }).join('\n');
+}
+
+function getChatContextRange(context, startIndex, maxMessages) {
+    const chat = context.chat;
+    if (!Array.isArray(chat) || chat.length === 0) return '';
+    const start = Math.max(0, startIndex);
+    const limit = maxMessages || MAX_CHAT_MESSAGES_FOR_CONTEXT;
+    const end = Math.min(start + limit, chat.length);
+    if (start >= chat.length) return '';
+    return chat.slice(start, end).map(msg => {
         const sender = msg.is_user ? context.name1 : msg.name || context.name2;
         return `${sender}: ${msg.mes || ''}`;
     }).join('\n');
@@ -204,9 +225,11 @@ Rules:
     ];
 }
 
-function buildCompletionCheckMessages(context, task, currentStepIndex) {
+function buildCompletionCheckMessages(context, task, currentStepIndex, checkStartIndex) {
     const characterContext = getCharacterContext(context);
-    const chatContext = getChatContext(context);
+    const chatContext = (checkStartIndex >= 0)
+        ? getChatContextRange(context, checkStartIndex)
+        : getChatContext(context);
 
     const systemContent = `You evaluate whether a specific task has been completed in a roleplay conversation.
 
@@ -326,6 +349,14 @@ function parseCompletionFromResponse(responseText) {
 
 // ==================== Prompt Injector ====================
 
+function buildGoalsSummaryText(task, currentStepIndex, totalSteps, storyGoal) {
+    return [
+        `[Story Progress \u2014 Narrative Goal]`,
+        `Goal: ${storyGoal}`,
+        `Current Task (${currentStepIndex + 1}/${totalSteps}): ${task.title} \u2014 ${task.description}`,
+    ].join('\n');
+}
+
 function injectSteeringPrompt(context, settings) {
     if (!context || typeof context.setExtensionPrompt !== 'function') return;
     if (!settings?.enabled || !settings?.autoInject) { removeSteeringPrompt(); return; }
@@ -337,9 +368,13 @@ function injectSteeringPrompt(context, settings) {
     if (!task) { removeSteeringPrompt(); return; }
 
     const remainingSteps = storyData.storySteps.slice(storyData.currentStepIndex + 1).map(s => ({ title: s.title, description: s.description }));
-    const text = buildSteeringPromptText(task, storyData.currentStepIndex, storyData.storySteps.length, storyData.storyGoal, remainingSteps);
+
+    const goalsText = buildGoalsSummaryText(task, storyData.currentStepIndex, storyData.storySteps.length, storyData.storyGoal);
+    const steeringText = buildSteeringPromptText(task, storyData.currentStepIndex, storyData.storySteps.length, storyData.storyGoal, remainingSteps);
+
     try {
-        context.setExtensionPrompt(EXTENSION_PROMPT_KEY, text, PROMPT_POSITION_AFTER, PROMPT_DEPTH, true, PROMPT_ROLE_SYSTEM);
+        context.setExtensionPrompt(EXTENSION_PROMPT_KEY_GOALS, goalsText, PROMPT_POSITION_BEFORE, PROMPT_DEPTH_BEFORE, true, PROMPT_ROLE_SYSTEM);
+        context.setExtensionPrompt(EXTENSION_PROMPT_KEY, steeringText, PROMPT_POSITION_AFTER, PROMPT_DEPTH, true, PROMPT_ROLE_SYSTEM);
     } catch (err) {
         console.error('[StoryProgressExtended] Failed to inject steering prompt:', err);
     }
@@ -348,6 +383,7 @@ function injectSteeringPrompt(context, settings) {
 function removeSteeringPrompt() {
     const ctx = globalThis.SillyTavern?.getContext?.() || null;
     if (!ctx || typeof ctx.setExtensionPrompt !== 'function') return;
+    try { ctx.setExtensionPrompt(EXTENSION_PROMPT_KEY_GOALS, '', 0, 0, false, 0); } catch { /* */ }
     try { ctx.setExtensionPrompt(EXTENSION_PROMPT_KEY, '', 0, 0, false, 0); } catch { /* */ }
 }
 
@@ -446,6 +482,7 @@ async function generateStorySteps(storyGoal) {
         storyData.stepsCompleted = tasks.map(() => false);
         storyData.messagesSinceCheck = 0;
         storyData.aiMessagesSinceCheck = 0;
+        storyData.lastCheckedMsgIndex = -1;
         storyData.storyComplete = false;
         storyData.isActive = true;
 
@@ -535,7 +572,11 @@ async function checkStepCompletion() {
 
     isChecking = true;
     try {
-        const messages = buildCompletionCheckMessages(context, task, storyData.currentStepIndex);
+        const overlapSize = Math.max(2, Math.floor((settings.checkInterval || 5) / 2));
+        const lastChecked = storyData.lastCheckedMsgIndex ?? -1;
+        const checkStartIndex = (lastChecked >= 0) ? Math.max(0, lastChecked - overlapSize) : -1;
+
+        const messages = buildCompletionCheckMessages(context, task, storyData.currentStepIndex, checkStartIndex);
 
         const apiMap = context.CONNECT_API_MAP?.[getProfileApi(context, settings.connectionProfileId)];
         const isCC = apiMap?.selected === 'openai';
@@ -578,6 +619,7 @@ async function checkStepCompletion() {
 
         storyData.aiMessagesSinceCheck = 0;
         storyData.messagesSinceCheck = 0;
+        storyData.lastCheckedMsgIndex = (context.chat || []).length;
         saveStoryData(context);
         refreshUI();
 
@@ -846,11 +888,20 @@ function createSettingsPanel() {
     checkBtn.className = 'menu_button story-progress-extended__btn story-progress-extended__btn--check';
     checkBtn.textContent = 'Check Now';
 
+    const skipBtn = document.createElement('button');
+    skipBtn.id = 'story_progress_extended_skip';
+    skipBtn.className = 'menu_button story-progress-extended__btn story-progress-extended__btn--skip';
+    skipBtn.textContent = 'Skip \u2192';
+
+    const actionRow = document.createElement('div');
+    actionRow.className = 'story-progress-extended__action-row';
+    actionRow.append(checkBtn, skipBtn);
+
     const statusText = document.createElement('small');
     statusText.id = 'story_progress_extended_progress_status';
     statusText.className = 'story-progress-extended__status';
 
-    progressSection.append(progressHeader, progressBarContainer, goalBanner, tasksList, checkBtn, statusText);
+    progressSection.append(progressHeader, progressBarContainer, goalBanner, tasksList, actionRow, statusText);
     content.append(progressSection);
 
     drawer.append(toggle, content);
@@ -1054,7 +1105,6 @@ function updateProgressUI(storyData) {
     const fractionEl = document.getElementById('story_progress_extended_fraction');
     const barEl = document.getElementById('story_progress_extended_bar');
     const statusEl = document.getElementById('story_progress_extended_progress_status');
-    const checkBtn = document.getElementById('story_progress_extended_check');
 
     renderGoalBanner(storyData);
 
@@ -1062,7 +1112,6 @@ function updateProgressUI(storyData) {
         if (fractionEl) fractionEl.textContent = '';
         if (barEl) barEl.style.width = '0%';
         if (statusEl) statusEl.textContent = '';
-        if (checkBtn) checkBtn.disabled = true;
         renderTaskList(storyData);
         return;
     }
@@ -1090,8 +1139,6 @@ function updateProgressUI(storyData) {
             statusEl.classList.remove('story-progress-extended__status--success');
         }
     }
-
-    if (checkBtn) checkBtn.disabled = !storyData.isActive || storyData.storyComplete;
 
     renderTaskList(storyData);
 }
@@ -1131,6 +1178,8 @@ function refreshUI() {
         checkBtn.textContent = isChecking ? 'Checking...' : 'Check Now';
     }
     if (ab) ab.disabled = !storyData.isActive || isGenerating;
+    const sb = el('story_progress_extended_skip');
+    if (sb) sb.disabled = !storyData.isActive || storyData.storyComplete;
 }
 
 async function onGenerateClick() {
@@ -1163,6 +1212,35 @@ async function onCheckClick() {
         setStatus(`Check error: ${error.message}`);
     }
 
+    refreshUI();
+}
+
+function onSkipClick() {
+    const context = getContextSafely();
+    if (!context) return;
+    const settings = getSettings(context);
+    const storyData = getStoryData(context);
+    if (!storyData?.isActive || storyData.storyComplete) return;
+
+    const task = storyData.storySteps[storyData.currentStepIndex];
+    if (!task) return;
+
+    storyData.stepsCompleted[storyData.currentStepIndex] = true;
+    const next = storyData.currentStepIndex + 1;
+    if (next >= storyData.storySteps.length) {
+        storyData.storyComplete = true;
+        storyData.isActive = false;
+        removeSteeringPrompt();
+        showToast('All Tasks Complete!', `"${storyData.storyGoal}" has been achieved. All ${storyData.storySteps.length} tasks finished.`, 'success');
+    } else {
+        storyData.currentStepIndex = next;
+        if (settings.autoInject) injectSteeringPrompt(context, settings);
+        const nextTask = storyData.storySteps[next];
+        showToast('Skipped Task', `"${task.title}" skipped. Now: "${nextTask.title}"`, 'info');
+    }
+
+    storyData.lastCheckedMsgIndex = (context.chat || []).length;
+    saveStoryData(context);
     refreshUI();
 }
 
@@ -1241,6 +1319,7 @@ function bindEvents(context, settings) {
     bind('story_progress_extended_add_more', 'click', onAddMoreClick);
     bind('story_progress_extended_reset', 'click', onResetClick);
     bind('story_progress_extended_check', 'click', onCheckClick);
+    bind('story_progress_extended_skip', 'click', onSkipClick);
 
     bind('story_progress_extended_goal', 'input', function () {
         const sd = getStoryData(context);
@@ -1281,6 +1360,19 @@ function bindChatEvents(context) {
         context.eventSource.on(cc, () => {
             onChatChanged();
             refreshUI();
+        });
+    }
+
+    const ms = context.eventTypes.MESSAGE_SENT;
+    if (ms) {
+        context.eventSource.on(ms, () => {
+            const ctx = getContextSafely();
+            if (!ctx) return;
+            const s = getSettings(ctx);
+            const sd = getStoryData(ctx);
+            if (sd?.isActive && !sd.storyComplete && s.autoInject) {
+                injectSteeringPrompt(ctx, s);
+            }
         });
     }
 
