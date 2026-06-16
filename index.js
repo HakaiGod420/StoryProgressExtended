@@ -80,6 +80,7 @@ function createDefaultStoryData() {
         checkAttempts: 0,
         storyComplete: false,
         isActive: false,
+        goalCompletionSentence: '',
     };
 }
 
@@ -92,6 +93,10 @@ function migrateStoryData(storyData) {
     }
     if (storyData.checkAttempts === undefined) {
         storyData.checkAttempts = 0;
+        migrated = true;
+    }
+    if (storyData.goalCompletionSentence === undefined) {
+        storyData.goalCompletionSentence = '';
         migrated = true;
     }
     storyData.storySteps = storyData.storySteps.map((step, i) => {
@@ -177,26 +182,28 @@ function buildTaskGenerationMessages(context, storyGoal, numberOfSteps) {
     const characterContext = getCharacterContext(context);
     const chatContext = getChatContext(context);
 
-    const systemContent = `You are a task planning assistant for interactive roleplay. You analyze the CURRENT conversation and generate concrete, actionable tasks that describe what needs to happen in the STORY WORLD — from the characters' perspective and the world's changes.
+    const systemContent = `You are a task planning assistant for interactive roleplay. You analyze the CURRENT conversation and generate concrete, short-term tasks that lead to an imagined end state.
 
 You must respond ONLY with valid JSON, nothing else:
-{"tasks": [{"title": "Short Task Title", "description": "What exactly needs to happen to complete this task"}]}
+{"tasks": [{"title": "Short Task Title", "description": "What exactly needs to happen to complete this task"}], "goalCompletionSentence": "One sentence describing what it looks like when the overall goal has been fully achieved"}
 
 Rules:
-- First, understand what is happening RIGHT NOW in the conversation. Where are the characters? What are they doing?
+- The Narrative Goal is the imagined END STATE the player wants to reach — not a distant saga, but a concrete story beat they can realistically reach in a few scenes.
+- First, understand what is happening RIGHT NOW in the conversation. Where are the characters? What are they doing right this moment?
 - Tasks describe events in the story WORLD — what the characters must do, what must change in the world, what situations must arise.
 - Do NOT reference the user or player. Tasks are about the story, not the player's actions.
-- Task 1 MUST be a natural next step from the current situation. If characters are fighting, Task 1 should start from the fight — not ignore it. If they are in a village, Task 1 starts there.
-- Each subsequent task builds sequentially toward the narrative goal.
+- Task 1 MUST be a seamless next step from the current situation. If characters are fighting, Task 1 starts from the fight — not ignore it. If they are in a village, Task 1 starts there. NO time skips, no teleporting.
+- Each subsequent task flows naturally from the previous one with NO time gaps. One task ends, the next task picks up immediately where it left off. Like consecutive beats in the same scene.
 - Generate exactly ${numberOfSteps} tasks.
 - Tasks must feel like natural story beats — they should emerge from what is happening, not feel forced or disconnected.
-- When all tasks are complete, the overall goal must be fulfilled.`;
+- When all tasks are complete, the goal must be fulfilled — the end state described in the goal must have happened.
+- Write exactly one goalCompletionSentence that describes the final state: what is true now that the goal is achieved?`;
 
     let userContent = '';
     if (chatContext) userContent += `--- Current Conversation (this is where the story is right now) ---\n${chatContext}\n\n`;
     if (characterContext) userContent += `--- Character Context ---\n${characterContext}\n\n`;
     userContent += `Narrative Goal: ${storyGoal}\n\n`;
-    userContent += `Generate ${numberOfSteps} tasks that lead from the CURRENT SITUATION above toward the goal. Task 1 must feel like a natural next step from what is happening right now. Respond with JSON only.`;
+    userContent += `Generate ${numberOfSteps} tasks that lead from the CURRENT SITUATION above toward the goal, with no time skips between them. Task 1 must feel like a seamless next beat from what is happening right now. Include the goalCompletionSentence. Respond with JSON only.`;
 
     return [
         { role: 'system', content: systemContent },
@@ -210,24 +217,24 @@ function buildAddMoreTasksMessages(context, storyGoal, existingSteps, numberOfNe
 
     const tasksSummary = existingSteps.map((s, i) => `${i + 1}. ${s.title}: ${s.description}`).join('\n');
 
-    const systemContent = `You are a task planning assistant for interactive roleplay. Your job is to generate additional tasks that continue an existing plan.
+    const systemContent = `You are a task planning assistant for interactive roleplay. Your job is to generate additional tasks that continue an existing sequential plan toward an imagined end state.
 
 You must respond ONLY with valid JSON, nothing else:
 {"tasks": [{"title": "Short Task Title", "description": "What exactly needs to happen to complete this task"}]}
 
 Rules:
 - Each task must be a clear, actionable objective that can be definitively accomplished
-- Tasks are sequential: each builds on the previous one
-- Generate exactly ${numberOfNewSteps} tasks that continue naturally after the existing ones
+- Tasks are strictly sequential: each starts exactly where the prior one ends, with NO time skips or gaps
+- Generate exactly ${numberOfNewSteps} tasks that follow naturally from the existing list
 - The title should be 2-6 words summarizing the task
 - The description should be 1-3 sentences explaining what must happen
-- Tasks should feel natural within the roleplay, not forced`;
+- The final task should lead to the same end state as the original goal`;
 
     let userContent = `Narrative Goal: ${storyGoal}\n\nExisting Tasks:\n${tasksSummary}\n\n`;
     if (customGoal) userContent += `--- Additional Goal ---\n${customGoal}\n\n`;
     if (characterContext) userContent += `--- Character Context ---\n${characterContext}\n\n`;
     if (chatContext) userContent += `--- Recent Chat History ---\n${chatContext}\n\n`;
-    userContent += `Generate ${numberOfNewSteps} more tasks that continue from the existing ones${customGoal ? ' and achieve the additional goal' : ''}. Respond with JSON only.`;
+    userContent += `Generate ${numberOfNewSteps} more tasks that continue sequentially from the existing ones with no time skips${customGoal ? ' and achieve the additional goal' : ''}. Respond with JSON only.`;
 
     return [
         { role: 'system', content: systemContent },
@@ -235,7 +242,7 @@ Rules:
     ];
 }
 
-function buildCompletionCheckMessages(context, task, currentStepIndex, checkStartIndex) {
+function buildCompletionCheckMessages(context, task, currentStepIndex, checkStartIndex, goalCompletionSentence) {
     const characterContext = getCharacterContext(context);
     const chatContext = (checkStartIndex >= 0)
         ? getChatContextRange(context, checkStartIndex)
@@ -246,9 +253,12 @@ function buildCompletionCheckMessages(context, task, currentStepIndex, checkStar
 You must respond ONLY with valid JSON:
 {"completed": true/false, "reasoning": "Brief explanation"}
 
-A task is "completed" only when its described objective has clearly and fully been achieved in the conversation. Partial progress does NOT count.`;
+A task is "completed" only when its described objective has clearly and fully been achieved in the conversation. Partial progress does NOT count.
+
+You are also given a goal completion reference sentence describing what the desired end state looks like. Use this only to understand where the tasks are heading — the check is still on whether the specific CURRENT task has been accomplished.`;
 
     let userContent = `Task ${currentStepIndex + 1} — "${task.title}"\nObjective: ${task.description}\n\n`;
+    if (goalCompletionSentence) userContent += `Goal Completion Reference: ${goalCompletionSentence}\n\n`;
     if (characterContext) userContent += `--- Character Context ---\n${characterContext}\n\n`;
     userContent += `--- Recent Chat History ---\n${chatContext}\n\n`;
     userContent += `Has the task "${task.title}" been fully accomplished? Answer with JSON only.`;
@@ -287,45 +297,59 @@ function parseTasksFromResponse(responseText) {
     let cleaned = responseText.trim();
 
     const jsonMatch = cleaned.match(/\{[\s\S]*"tasks"[\s\S]*\}/);
-    if (jsonMatch) cleaned = jsonMatch[0];
+    let parsed = null;
+    if (jsonMatch) {
+        cleaned = jsonMatch[0];
+    }
+
+    let completionSentence = '';
 
     try {
-        const parsed = JSON.parse(cleaned);
-        if (Array.isArray(parsed.tasks) && parsed.tasks.length > 0) {
-            return parsed.tasks.map((t, i) => ({
-                title: t.title || `Task ${i + 1}`,
-                description: t.description || t.title || `Task ${i + 1}`,
-            }));
-        }
+        parsed = JSON.parse(cleaned);
     } catch {
         const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
         if (arrayMatch) {
-            try {
-                const arr = JSON.parse(arrayMatch[0]);
-                if (Array.isArray(arr) && arr.length > 0) {
-                    return arr.map((t, i) => {
-                        if (typeof t === 'string') return { title: `Task ${i + 1}`, description: t };
-                        return { title: t.title || `Task ${i + 1}`, description: t.description || t.title || `Task ${i + 1}` };
-                    });
-                }
-            } catch { /* fall through */ }
+            try { parsed = JSON.parse(arrayMatch[0]); } catch { /* fall through */ }
+        }
+    }
+
+    if (parsed) {
+        if (typeof parsed.goalCompletionSentence === 'string' && parsed.goalCompletionSentence.trim()) {
+            completionSentence = parsed.goalCompletionSentence.trim();
+        }
+        let tasks = null;
+        if (Array.isArray(parsed.tasks) && parsed.tasks.length > 0) {
+            tasks = parsed.tasks;
+        } else if (Array.isArray(parsed) && parsed.length > 0) {
+            tasks = parsed;
+        }
+        if (tasks) {
+            return {
+                tasks: tasks.map((t, i) => {
+                    if (typeof t === 'string') return { title: `Task ${i + 1}`, description: t };
+                    return { title: t.title || `Task ${i + 1}`, description: t.description || t.title || `Task ${i + 1}` };
+                }),
+                completionSentence,
+            };
         }
     }
 
     const lines = cleaned.split('\n').filter(l => l.trim().length > 0);
     const taskLines = lines.filter(l => /^\d+[\.\):]\s/.test(l.trim()));
     if (taskLines.length > 0) {
-        return taskLines.map((l, i) => {
+        const tasks = taskLines.map((l, i) => {
             const text = l.trim().replace(/^\d+[\.\):]\s*/, '');
             return { title: `Task ${i + 1}`, description: text };
         });
+        return { tasks, completionSentence: '' };
     }
 
     if (lines.length > 1) {
-        return lines.filter(l => l.trim().length > 5).map((l, i) => ({
+        const tasks = lines.filter(l => l.trim().length > 5).map((l, i) => ({
             title: `Task ${i + 1}`,
             description: l.trim(),
         }));
+        return { tasks, completionSentence: '' };
     }
     return null;
 }
@@ -478,14 +502,18 @@ async function generateStorySteps(storyGoal) {
         }
 
         const responseText = result?.content || result?.text || (typeof result === 'string' ? result : '');
-        const tasks = parseTasksFromResponse(responseText);
+        const parsed = parseTasksFromResponse(responseText);
 
-        if (!tasks || tasks.length === 0) {
+        if (!parsed || !parsed.tasks || parsed.tasks.length === 0) {
             return { success: false, error: 'Failed to parse tasks from AI response. Try again.' };
         }
 
+        const tasks = parsed.tasks;
+        const completionSentence = parsed.completionSentence || '';
+
         storyData.storyGoal = storyGoal.trim();
         storyData.storySteps = tasks;
+        storyData.goalCompletionSentence = completionSentence;
         storyData.currentStepIndex = 0;
         storyData.stepsCompleted = tasks.map(() => false);
         storyData.messagesSinceCheck = 0;
@@ -536,11 +564,13 @@ async function addMoreStorySteps(numberOfNewSteps, customGoal) {
         }
 
         const responseText = result?.content || result?.text || (typeof result === 'string' ? result : '');
-        const tasks = parseTasksFromResponse(responseText);
+        const parsed = parseTasksFromResponse(responseText);
 
-        if (!tasks || tasks.length === 0) {
+        if (!parsed || !parsed.tasks || parsed.tasks.length === 0) {
             return { success: false, error: 'Failed to parse new tasks from AI response. Try again.' };
         }
+
+        const tasks = parsed.tasks;
 
         storyData.storySteps.push(...tasks);
         for (let i = 0; i < tasks.length; i++) storyData.stepsCompleted.push(false);
@@ -559,7 +589,7 @@ async function addMoreStorySteps(numberOfNewSteps, customGoal) {
     }
 }
 
-async function checkStepCompletion(silent) {
+async function checkStepCompletion() {
     const context = getContextSafely();
     if (!context) return { success: false, error: 'Context unavailable' };
 
@@ -572,12 +602,14 @@ async function checkStepCompletion(silent) {
     const task = storyData.storySteps[storyData.currentStepIndex];
     if (!task) return { success: false, error: 'No current task' };
 
+    showToast('Checking...', `Checking if "${task.title}" is complete...`, 'info');
+
     try {
         const overlapSize = Math.max(2, Math.floor((settings.checkInterval || 5) / 2));
         const lastChecked = storyData.lastCheckedMsgIndex ?? -1;
         const checkStartIndex = (lastChecked >= 0) ? Math.max(0, lastChecked - overlapSize) : -1;
 
-        const messages = buildCompletionCheckMessages(context, task, storyData.currentStepIndex, checkStartIndex);
+        const messages = buildCompletionCheckMessages(context, task, storyData.currentStepIndex, checkStartIndex, storyData.goalCompletionSentence);
 
         const apiMap = context.CONNECT_API_MAP?.[getProfileApi(context, settings.connectionProfileId)];
         const isCC = apiMap?.selected === 'openai';
@@ -611,10 +643,8 @@ async function checkStepCompletion(silent) {
             } else {
                 storyData.currentStepIndex = next;
                 if (settings.autoInject) injectSteeringPrompt(context, settings);
-                if (!silent) {
-                    const nextTask = storyData.storySteps[next];
-                    showToast('Task Completed', `"${task.title}" is done. Next: "${nextTask.title}"`, 'success');
-                }
+                const nextTask = storyData.storySteps[next];
+                showToast('Task Completed', `"${task.title}" is done. Next: "${nextTask.title}"`, 'success');
             }
         } else {
             storyData.checkAttempts = (storyData.checkAttempts || 0) + 1;
@@ -635,9 +665,7 @@ async function checkStepCompletion(silent) {
                 }
             } else {
                 if (settings.autoInject) injectSteeringPrompt(context, settings);
-                if (!silent) {
-                    showToast('Not Yet Done', `"${task.title}" \u2014 ${cr.reasoning} (${storyData.checkAttempts}/${maxAttempts})`, 'info');
-                }
+                showToast('Not Yet Done', `"${task.title}" \u2014 ${cr.reasoning} (${storyData.checkAttempts}/${maxAttempts})`, 'info');
             }
         }
 
@@ -686,7 +714,7 @@ async function onAIMessage() {
 
     const checkInterval = settings.checkInterval || 5;
     if (storyData.aiMessagesSinceCheck >= checkInterval) {
-        await checkStepCompletion(true);
+        await checkStepCompletion();
     }
 }
 
@@ -864,7 +892,7 @@ function createSettingsPanel() {
     const goalTextarea = document.createElement('textarea');
     goalTextarea.id = 'story_progress_extended_goal';
     goalTextarea.className = 'text_pole story-progress-extended__goal-input';
-    goalTextarea.placeholder = 'Describe the narrative goal \u2014 what should happen in the story?';
+    goalTextarea.placeholder = 'Describe the imagined end state \u2014 what must be true when this chapter concludes? Keep it specific and concrete, not a long-term saga.';
     goalTextarea.rows = 3;
 
     const buttonRow = document.createElement('div');
@@ -1256,7 +1284,10 @@ function refreshUI() {
         checkBtn.disabled = !storyData.isActive || storyData.storyComplete || isChecking;
         checkBtn.textContent = isChecking ? 'Checking...' : 'Check Now';
     }
-    if (ab) ab.disabled = !storyData.isActive || isGenerating;
+    if (ab) {
+        ab.style.display = storyData.isActive ? '' : 'none';
+        ab.disabled = !storyData.isActive || isGenerating;
+    }
     const sb = el('story_progress_extended_skip');
     if (sb) sb.disabled = !storyData.isActive || storyData.storyComplete || isGenerating || isChecking;
     const bb = el('story_progress_extended_back');
