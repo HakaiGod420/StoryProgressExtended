@@ -3,12 +3,7 @@ import {
     PROFILE_STATUS_ID,
     TASKS_PER_PAGE,
     CONNECTION_PROFILE_EVENTS,
-    isGenerating,
-    isChecking,
-    profileEventsBound,
-    chatEventsBound,
-    currentPage,
-    showIncompleteOnly,
+    state,
 } from '../lib/constants.js';
 
 import { getContextSafely, getSettings, getStoryData, saveStoryData } from '../lib/data.js';
@@ -153,7 +148,7 @@ function renderTaskList(storyData) {
     }
 
     let indices = storyData.storySteps.map((_, i) => i);
-    if (showIncompleteOnly) {
+    if (state.showIncompleteOnly) {
         indices = indices.filter(i => !(storyData.stepsCompleted?.[i] || false));
         if (indices.length === 0) {
             const empty = document.createElement('div');
@@ -167,10 +162,10 @@ function renderTaskList(storyData) {
     const totalTasks = indices.length;
     const totalPages = Math.ceil(totalTasks / TASKS_PER_PAGE);
 
-    if (currentPage >= totalPages) currentPage = totalPages - 1;
-    if (currentPage < 0) currentPage = 0;
+    if (state.currentPage >= totalPages) state.currentPage = totalPages - 1;
+    if (state.currentPage < 0) state.currentPage = 0;
 
-    const startIdx = currentPage * TASKS_PER_PAGE;
+    const startIdx = state.currentPage * TASKS_PER_PAGE;
     const endIdx = Math.min(startIdx + TASKS_PER_PAGE, totalTasks);
 
     for (let i = startIdx; i < endIdx; i++) {
@@ -248,22 +243,22 @@ function renderTaskList(storyData) {
         const prevBtn = document.createElement('button');
         prevBtn.className = 'menu_button story-progress-extended__pagination-btn';
         prevBtn.textContent = '\u25C0 Prev';
-        prevBtn.disabled = currentPage <= 0;
+        prevBtn.disabled = state.currentPage <= 0;
         prevBtn.addEventListener('click', () => {
-            currentPage--;
+            state.currentPage--;
             renderTaskList(getStoryData(getContextSafely()));
         });
 
         const pageInfo = document.createElement('span');
         pageInfo.className = 'story-progress-extended__pagination-info';
-        pageInfo.textContent = `Page ${currentPage + 1}/${totalPages}`;
+        pageInfo.textContent = `Page ${state.currentPage + 1}/${totalPages}`;
 
         const nextBtn = document.createElement('button');
         nextBtn.className = 'menu_button story-progress-extended__pagination-btn';
         nextBtn.textContent = 'Next \u25B6';
-        nextBtn.disabled = currentPage >= totalPages - 1;
+        nextBtn.disabled = state.currentPage >= totalPages - 1;
         nextBtn.addEventListener('click', () => {
-            currentPage++;
+            state.currentPage++;
             renderTaskList(getStoryData(getContextSafely()));
         });
 
@@ -344,32 +339,32 @@ export function refreshUI() {
     const checkBtn = el('story_progress_extended_check');
     const ab = el('story_progress_extended_add_more');
     if (gb) {
-        gb.disabled = !settings.connectionProfileId || isGenerating;
-        gb.textContent = isGenerating ? 'Generating...' : 'Generate Tasks';
+        gb.disabled = !settings.connectionProfileId || state.isGenerating;
+        gb.textContent = state.isGenerating ? 'Generating...' : 'Generate Tasks';
     }
-    if (rb) rb.disabled = (!storyData.storyGoal && !storyData.isActive) || isGenerating;
+    if (rb) rb.disabled = (!storyData.storyGoal && !storyData.isActive) || state.isGenerating;
     if (checkBtn) {
-        checkBtn.disabled = !storyData.isActive || storyData.storyComplete || isChecking;
-        checkBtn.textContent = isChecking ? 'Checking...' : 'Check Now';
+        checkBtn.disabled = !storyData.isActive || storyData.storyComplete || state.isChecking;
+        checkBtn.textContent = state.isChecking ? 'Checking...' : 'Check Now';
     }
     if (ab) {
         ab.style.display = storyData.isActive ? '' : 'none';
-        ab.disabled = !storyData.isActive || isGenerating;
+        ab.disabled = !storyData.isActive || state.isGenerating;
     }
     const sb = el('story_progress_extended_skip');
-    if (sb) sb.disabled = !storyData.isActive || storyData.storyComplete || isGenerating || isChecking;
+    if (sb) sb.disabled = !storyData.isActive || storyData.storyComplete || state.isGenerating || state.isChecking;
     const bb = el('story_progress_extended_back');
     if (bb) bb.disabled = !storyData || storyData.currentStepIndex <= 0;
     const fb = el('story_progress_extended_filter');
-    if (fb) fb.textContent = showIncompleteOnly ? 'Show All' : 'Hide Completed';
+    if (fb) fb.textContent = state.showIncompleteOnly ? 'Show All' : 'Hide Completed';
 
     const spinnerEl = el('story_progress_extended_spinner');
     const spinnerTextEl = el('story_progress_extended_spinner_text');
     if (spinnerEl) {
-        const busy = isGenerating || isChecking;
+        const busy = state.isGenerating || state.isChecking;
         spinnerEl.style.display = busy ? 'flex' : 'none';
         if (spinnerTextEl) {
-            spinnerTextEl.textContent = isGenerating ? 'Generating tasks...' : isChecking ? 'Checking completion...' : 'Processing...';
+            spinnerTextEl.textContent = state.isGenerating ? 'Generating tasks...' : state.isChecking ? 'Checking completion...' : 'Processing...';
         }
     }
 }
@@ -380,9 +375,9 @@ async function onGenerateClick() {
     const goalTextarea = document.getElementById('story_progress_extended_goal');
     const storyGoal = goalTextarea?.value?.trim();
     if (!storyGoal) { setStatus('Please describe the quest first.'); return; }
-    if (isGenerating) return;
+    if (state.isGenerating) return;
 
-    isGenerating = true;
+    state.isGenerating = true;
     refreshUI();
 
     try {
@@ -395,15 +390,15 @@ async function onGenerateClick() {
     } catch (error) {
         showToast('Error', error.message, 'error');
     } finally {
-        isGenerating = false;
+        state.isGenerating = false;
         refreshUI();
     }
 }
 
 async function onCheckClick() {
-    if (isChecking || isGenerating) return;
+    if (state.isChecking || state.isGenerating) return;
 
-    isChecking = true;
+    state.isChecking = true;
     refreshUI();
 
     try {
@@ -411,7 +406,7 @@ async function onCheckClick() {
     } catch (error) {
         setStatus(`Check error: ${error.message}`);
     } finally {
-        isChecking = false;
+        state.isChecking = false;
         refreshUI();
     }
 }
@@ -553,12 +548,12 @@ function showAddTasksPopup() {
 }
 
 async function onAddMoreClick() {
-    if (isGenerating) return;
+    if (state.isGenerating) return;
 
     const result = await showAddTasksPopup();
     if (!result) return;
 
-    isGenerating = true;
+    state.isGenerating = true;
     refreshUI();
 
     try {
@@ -571,7 +566,7 @@ async function onAddMoreClick() {
     } catch (error) {
         showToast('Error', error.message, 'error');
     } finally {
-        isGenerating = false;
+        state.isGenerating = false;
         refreshUI();
     }
 }
@@ -583,8 +578,8 @@ function onResetClick() {
 }
 
 function onFilterToggle() {
-    showIncompleteOnly = !showIncompleteOnly;
-    currentPage = 0;
+    state.showIncompleteOnly = !state.showIncompleteOnly;
+    state.currentPage = 0;
     refreshUI();
 }
 
@@ -659,13 +654,13 @@ function bindEvents(context, settings) {
 }
 
 function bindConnectionProfileEvents(context) {
-    if (!context?.eventSource || !context?.eventTypes || profileEventsBound) return;
+    if (!context?.eventSource || !context?.eventTypes || state.profileEventsBound) return;
     for (const eventName of CONNECTION_PROFILE_EVENTS) {
         const eventType = context.eventTypes[eventName];
         if (!eventType) continue;
         context.eventSource.on(eventType, () => refreshUI());
     }
-    profileEventsBound = true;
+    state.profileEventsBound = true;
 }
 
 export function initUI(context, settings) {
@@ -677,7 +672,7 @@ export function initUI(context, settings) {
 }
 
 export function bindChatEvents(context) {
-    if (!context?.eventSource || !context?.eventTypes || chatEventsBound) return;
+    if (!context?.eventSource || !context?.eventTypes || state.chatEventsBound) return;
 
     const mr = context.eventTypes.CHARACTER_MESSAGE_RENDERED;
     if (mr) {
@@ -707,7 +702,7 @@ export function bindChatEvents(context) {
         });
     }
 
-    chatEventsBound = true;
+    state.chatEventsBound = true;
 }
 
 // ==================== Panel Init ====================

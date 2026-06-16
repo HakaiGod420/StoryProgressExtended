@@ -1,4 +1,4 @@
-import { uiInitialized } from './lib/constants.js';
+import { state } from './lib/constants.js';
 import { getContextSafely, getSettings, getStoryData } from './lib/data.js';
 import { injectSteeringPrompt } from './lib/services.js';
 import { initUI, bindChatEvents, ensureSettingsPanel } from './ui/app.js';
@@ -24,8 +24,8 @@ function tryInitUI() {
 
 let initAttempts = 0;
 function scheduleUIInit() {
-    if (uiInitialized) return;
-    if (tryInitUI()) { uiInitialized = true; return; }
+    if (state.uiInitialized) return;
+    if (tryInitUI()) { state.uiInitialized = true; return; }
     if (initAttempts >= 20) return;
     initAttempts++;
     setTimeout(scheduleUIInit, 500);
@@ -46,7 +46,7 @@ export function onActivate() {
         const appReady = context.eventTypes.APP_READY;
         if (appReady) {
             context.eventSource.once(appReady, () => {
-                if (!uiInitialized) scheduleUIInit();
+                if (!state.uiInitialized) scheduleUIInit();
             });
         }
     }
