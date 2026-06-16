@@ -182,28 +182,28 @@ function buildTaskGenerationMessages(context, storyGoal, numberOfSteps) {
     const characterContext = getCharacterContext(context);
     const chatContext = getChatContext(context);
 
-    const systemContent = `You are a task planning assistant for interactive roleplay. You analyze the CURRENT conversation and generate concrete, short-term tasks that lead to an imagined end state.
+    const systemContent = `You are a task planning assistant for interactive roleplay. You analyze the CURRENT conversation and break down what the character must actively DO to achieve their quest.
 
 You must respond ONLY with valid JSON, nothing else:
-{"tasks": [{"title": "Short Task Title", "description": "What exactly needs to happen to complete this task"}], "goalCompletionSentence": "One sentence describing what it looks like when the overall goal has been fully achieved"}
+{"tasks": [{"title": "Short Task Title", "description": "What the character must actively do to complete this task"}], "goalCompletionSentence": "One sentence describing what it looks like when the quest has been fully achieved"}
 
 Rules:
-- The Narrative Goal is the imagined END STATE the player wants to reach — not a distant saga, but a concrete story beat they can realistically reach in a few scenes.
-- First, understand what is happening RIGHT NOW in the conversation. Where are the characters? What are they doing right this moment?
-- Tasks describe events in the story WORLD — what the characters must do, what must change in the world, what situations must arise.
-- Do NOT reference the user or player. Tasks are about the story, not the player's actions.
-- Task 1 MUST be a seamless next step from the current situation. If characters are fighting, Task 1 starts from the fight — not ignore it. If they are in a village, Task 1 starts there. NO time skips, no teleporting.
-- Each subsequent task flows naturally from the previous one with NO time gaps. One task ends, the next task picks up immediately where it left off. Like consecutive beats in the same scene.
+- The Goal is a CHARACTER QUEST — something the character is actively trying to achieve. Not a passive story plot, but an objective the character personally pursues.
+- Examples of good quest-style tasks: "Convince the guard to let them pass", "Lead the group to the village", "Make the person understand the danger", "Obtain the key from the merchant", "Reach the mountain pass"
+- Do NOT describe passive storyline events like "A storm arrives" or "The kingdom falls". Every task must be something the character DOES.
+- NEVER reference the user. Tasks are about the character and the world around them, not about a player.
+- First, understand what is happening RIGHT NOW in the conversation. What is the character doing this moment?
+- Task 1 MUST be a seamless next objective from the current situation. If the character is talking to someone, Task 1 starts from that conversation. NO time skips, no teleporting.
+- Each subsequent task flows naturally from the previous one with NO time gaps. One objective leads directly into the next.
 - Generate exactly ${numberOfSteps} tasks.
-- Tasks must feel like natural story beats — they should emerge from what is happening, not feel forced or disconnected.
-- When all tasks are complete, the goal must be fulfilled — the end state described in the goal must have happened.
-- Write exactly one goalCompletionSentence that describes the final state: what is true now that the goal is achieved?`;
+- When all tasks are complete, the character's quest must be fulfilled — the objective described in the goal must have been achieved.
+- Write exactly one goalCompletionSentence that describes the final state: what is true now that the character's quest is achieved?`;
 
     let userContent = '';
     if (chatContext) userContent += `--- Current Conversation (this is where the story is right now) ---\n${chatContext}\n\n`;
     if (characterContext) userContent += `--- Character Context ---\n${characterContext}\n\n`;
-    userContent += `Narrative Goal: ${storyGoal}\n\n`;
-    userContent += `Generate ${numberOfSteps} tasks that lead from the CURRENT SITUATION above toward the goal, with no time skips between them. Task 1 must feel like a seamless next beat from what is happening right now. Include the goalCompletionSentence. Respond with JSON only.`;
+    userContent += `Character's Quest: ${storyGoal}\n\n`;
+    userContent += `Generate ${numberOfSteps} tasks that the character must actively do to achieve this quest, with no time skips between them. Task 1 must be a seamless next objective from what is happening right now. Include the goalCompletionSentence. Respond with JSON only.`;
 
     return [
         { role: 'system', content: systemContent },
@@ -217,20 +217,21 @@ function buildAddMoreTasksMessages(context, storyGoal, existingSteps, numberOfNe
 
     const tasksSummary = existingSteps.map((s, i) => `${i + 1}. ${s.title}: ${s.description}`).join('\n');
 
-    const systemContent = `You are a task planning assistant for interactive roleplay. Your job is to generate additional tasks that continue an existing sequential plan toward an imagined end state.
+    const systemContent = `You are a task planning assistant for interactive roleplay. Your job is to generate additional character-driven objectives that continue an existing quest plan.
 
 You must respond ONLY with valid JSON, nothing else:
-{"tasks": [{"title": "Short Task Title", "description": "What exactly needs to happen to complete this task"}]}
+{"tasks": [{"title": "Short Task Title", "description": "What the character must actively do to complete this task"}]}
 
 Rules:
-- Each task must be a clear, actionable objective that can be definitively accomplished
+- Each task must be something the CHARACTER actively does — not a passive story event. Think in quests: "convince X", "reach Y", "obtain Z", "make A understand".
+- NEVER reference the user. Tasks are about the character and the world.
 - Tasks are strictly sequential: each starts exactly where the prior one ends, with NO time skips or gaps
 - Generate exactly ${numberOfNewSteps} tasks that follow naturally from the existing list
-- The title should be 2-6 words summarizing the task
-- The description should be 1-3 sentences explaining what must happen
-- The final task should lead to the same end state as the original goal`;
+- The title should be 2-6 words summarizing the objective
+- The description should be 1-3 sentences explaining what the character must do
+- The final task should lead to the same quest outcome as the original goal`;
 
-    let userContent = `Narrative Goal: ${storyGoal}\n\nExisting Tasks:\n${tasksSummary}\n\n`;
+    let userContent = `Character's Quest: ${storyGoal}\n\nExisting Tasks:\n${tasksSummary}\n\n`;
     if (customGoal) userContent += `--- Additional Goal ---\n${customGoal}\n\n`;
     if (characterContext) userContent += `--- Character Context ---\n${characterContext}\n\n`;
     if (chatContext) userContent += `--- Recent Chat History ---\n${chatContext}\n\n`;
@@ -253,12 +254,12 @@ function buildCompletionCheckMessages(context, task, currentStepIndex, checkStar
 You must respond ONLY with valid JSON:
 {"completed": true/false, "reasoning": "Brief explanation"}
 
-A task is "completed" only when its described objective has clearly and fully been achieved in the conversation. Partial progress does NOT count.
+A task is "completed" only when the character has clearly and fully accomplished the described objective. Partial progress does NOT count.
 
-You are also given a goal completion reference sentence describing what the desired end state looks like. Use this only to understand where the tasks are heading — the check is still on whether the specific CURRENT task has been accomplished.`;
+You are also given a quest completion reference sentence describing what the desired end state looks like. Use this only to understand where the tasks are heading — the check is still on whether the specific CURRENT task has been accomplished.`;
 
     let userContent = `Task ${currentStepIndex + 1} — "${task.title}"\nObjective: ${task.description}\n\n`;
-    if (goalCompletionSentence) userContent += `Goal Completion Reference: ${goalCompletionSentence}\n\n`;
+    if (goalCompletionSentence) userContent += `Quest Completion Reference: ${goalCompletionSentence}\n\n`;
     if (characterContext) userContent += `--- Character Context ---\n${characterContext}\n\n`;
     userContent += `--- Recent Chat History ---\n${chatContext}\n\n`;
     userContent += `Has the task "${task.title}" been fully accomplished? Answer with JSON only.`;
@@ -272,7 +273,7 @@ You are also given a goal completion reference sentence describing what the desi
 function buildSteeringPromptText(task, currentStepIndex, totalSteps, storyGoal, remainingSteps) {
     const lines = [
         `[Story Progress \u2014 Task ${currentStepIndex + 1}/${totalSteps}: "${task.title}"]`,
-        `Overall Goal: ${storyGoal}`,
+        `Quest: ${storyGoal}`,
         `Current Task: ${task.title} \u2014 ${task.description}`,
     ];
 
@@ -285,7 +286,7 @@ function buildSteeringPromptText(task, currentStepIndex, totalSteps, storyGoal, 
     }
 
     lines.push('');
-    lines.push('You MUST actively steer the roleplay toward completing the current task. Ensure the characters\' actions, dialogue, and events directly progress toward this objective. This is a required goal, not optional guidance. Do not ignore it or move on without achieving it.');
+    lines.push('You MUST actively steer the roleplay toward completing the current task. The character must pursue this objective \u2014 it is a required quest objective, not optional guidance. Do not ignore it.');
 
     return lines.join('\n');
 }
@@ -385,8 +386,8 @@ function parseCompletionFromResponse(responseText) {
 
 function buildGoalsSummaryText(task, currentStepIndex, totalSteps, storyGoal) {
     return [
-        `[Story Progress \u2014 Narrative Goal]`,
-        `Goal: ${storyGoal}`,
+        `[Story Progress \u2014 Quest]`,
+        `Quest: ${storyGoal}`,
         `Current Task (${currentStepIndex + 1}/${totalSteps}): ${task.title} \u2014 ${task.description}`,
     ].join('\n');
 }
@@ -478,7 +479,7 @@ async function generateStorySteps(storyGoal) {
 
     const settings = getSettings(context);
     if (!settings.connectionProfileId) return { success: false, error: 'No connection profile selected' };
-    if (!storyGoal?.trim()) return { success: false, error: 'Please enter a goal' };
+    if (!storyGoal?.trim()) return { success: false, error: 'Please describe the quest' };
 
     try {
         const storyData = getStoryData(context);
@@ -639,7 +640,7 @@ async function checkStepCompletion() {
                 storyData.storyComplete = true;
                 storyData.isActive = false;
                 removeSteeringPrompt();
-                showToast('All Tasks Complete!', `"${storyData.storyGoal}" has been achieved. All ${storyData.storySteps.length} tasks finished.`, 'success');
+                showToast('Quest Complete!', `"${storyData.storyGoal}" has been achieved. All ${storyData.storySteps.length} tasks finished.`, 'success');
             } else {
                 storyData.currentStepIndex = next;
                 if (settings.autoInject) injectSteeringPrompt(context, settings);
@@ -886,13 +887,13 @@ function createSettingsPanel() {
 
     const goalLabel = document.createElement('label');
     goalLabel.htmlFor = 'story_progress_extended_goal';
-    goalLabel.textContent = 'Narrative Goal';
+    goalLabel.textContent = 'Quest';
     goalLabel.className = 'story-progress-extended__goal-label';
 
     const goalTextarea = document.createElement('textarea');
     goalTextarea.id = 'story_progress_extended_goal';
     goalTextarea.className = 'text_pole story-progress-extended__goal-input';
-    goalTextarea.placeholder = 'Describe the imagined end state \u2014 what must be true when this chapter concludes? Keep it specific and concrete, not a long-term saga.';
+    goalTextarea.placeholder = "Describe the character's quest \u2014 what is the character actively trying to achieve? (e.g., convince someone to go somewhere, obtain an item, make someone understand something)";
     goalTextarea.rows = 3;
 
     const buttonRow = document.createElement('div');
@@ -1017,7 +1018,7 @@ function renderGoalBanner(storyData) {
 
     const goalLabel = document.createElement('span');
     goalLabel.className = 'story-progress-extended__goal-banner-label';
-    goalLabel.textContent = storyData.storyComplete ? 'Goal Achieved:' : 'Goal:';
+    goalLabel.textContent = storyData.storyComplete ? 'Quest Achieved:' : 'Quest:';
 
     const goalText = document.createElement('span');
     goalText.className = 'story-progress-extended__goal-banner-text';
@@ -1040,7 +1041,7 @@ function renderTaskList(storyData) {
     if (!storyData?.storySteps?.length) {
         const empty = document.createElement('div');
         empty.className = 'story-progress-extended__empty';
-        empty.textContent = 'No tasks generated yet. Enter a narrative goal and click "Generate Tasks".';
+        empty.textContent = "No quest objectives yet. Describe the character's quest and click \"Generate Tasks\".";
         list.append(empty);
         return;
     }
@@ -1309,7 +1310,7 @@ function refreshUI() {
 async function onGenerateClick() {
     const goalTextarea = document.getElementById('story_progress_extended_goal');
     const storyGoal = goalTextarea?.value?.trim();
-    if (!storyGoal) { setStatus('Please enter a narrative goal first.'); return; }
+    if (!storyGoal) { setStatus('Please describe the quest first.'); return; }
     if (isGenerating) return;
 
     isGenerating = true;
@@ -1363,7 +1364,7 @@ function onSkipClick() {
         storyData.storyComplete = true;
         storyData.isActive = false;
         removeSteeringPrompt();
-        showToast('All Tasks Complete!', `"${storyData.storyGoal}" has been achieved. All ${storyData.storySteps.length} tasks finished.`, 'success');
+        showToast('Quest Complete!', `"${storyData.storyGoal}" has been achieved. All ${storyData.storySteps.length} tasks finished.`, 'success');
     } else {
         storyData.currentStepIndex = next;
         if (settings.autoInject) injectSteeringPrompt(context, settings);
