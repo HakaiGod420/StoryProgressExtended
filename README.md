@@ -1,24 +1,26 @@
 # Story Progress Extended
 
-A SillyTavern extension that turns your narrative goals into actionable task lists, tracks progress per-chat, auto-checks completion, and steers the AI toward your story objectives.
+A SillyTavern extension that turns character quests into actionable task lists, tracks progress per-chat, auto-checks completion, and steers the AI toward the quest objective.
 
 ## Features
 
-- **Goal-to-Task Generation** — Enter a narrative goal and let AI break it down into concrete, sequential tasks with titles and descriptions
-- **Per-Chat Progress Tracking** — Each chat maintains its own task list and progress state; starting a new chat requires regenerating
-- **Automatic Completion Checking** — Every N AI messages, the extension evaluates whether the current task has been achieved in the conversation
-- **Smart Overlapping Windows** — Completion checks use sliding message windows (e.g., messages 1-3, then 3-6, then 6-9) so the AI evaluator only sees fresh context each time
-- **Dual Context Injection** — Goals are injected before the chat history (so the AI sees them first) and a steering reminder is injected after (so the AI doesn't drift)
-- **Pre-Send Goal Injection** — Goals are re-injected before every user message via the `MESSAGE_SENT` event, guaranteeing the AI always has context
+- **Quest-to-Task Generation** — Describe a character's quest and let AI break it down into concrete, sequential objectives
+- **Character-Driven Tasks** — Every task is something the character actively does (e.g., "Convince the guard", "Reach the village"), not a passive story event
+- **Per-Chat Progress Tracking** — Each chat maintains its own task list and progress state
+- **Automatic Completion Checking** — Every N AI messages, the extension evaluates whether the current task has been achieved
+- **Smart Overlapping Windows** — Completion checks use sliding message windows so the evaluator only sees fresh context each time
+- **Dual Context Injection** — Quest summary is injected before chat history and a steering reminder after, so the AI never loses sight of the objective
+- **Internal Completion Sentence** — At task generation time, the AI produces a hidden one-sentence description of quest completion used for internal verification
+- **Notification on Every Check** — Shows "Checking..." toast at the start of every completion check, plus the result (always visible, never silent)
 - **Manual Skip** — Skip the current task and move to the next without waiting for AI verification
 - **Manual Go Back** — Go back to the previous task and re-open it as pending
-- **Add More Tasks** — Append additional tasks to an existing plan without regenerating from scratch
+- **Add More Tasks** — Append additional objectives to an existing plan without regenerating from scratch
 - **Delete Tasks** — Remove individual tasks from the list with automatic index adjustment
 - **Filter: Hide Completed** — Toggle to show only incomplete tasks (3 per page)
-- **Auto-Complete Stuck Tasks** — If a task fails N completion checks (configurable, default 10), it is force-completed and the story advances
+- **Auto-Complete Stuck Tasks** — If a task fails N checks (configurable), it is force-completed and the story advances
 - **Pagination** — Long task lists are paginated (3 per page) with prev/next navigation
-- **Toast Notifications** — Non-blocking notifications via SillyTavern's built-in toastr (top-center, auto-dismiss)
-- **Connection Profile Support** — Uses SillyTavern's Connection Manager for API calls; falls back to `generateQuietPrompt` if unavailable
+- **Toast Notifications** — Non-blocking notifications via SillyTavern's built-in toastr
+- **Connection Profile Support** — Uses SillyTavern's Connection Manager for API calls; falls back to `generateQuietPrompt`
 
 ## Installation
 
@@ -26,159 +28,133 @@ A SillyTavern extension that turns your narrative goals into actionable task lis
 
 1. Open SillyTavern
 2. Go to **Extensions** > **Install from URL**
-3. Paste the repository URL:
-   ```
-   https://github.com/StoryProgressExtended/StoryProgressExtended
-   ```
+3. Paste the repository URL
 4. Click **Install**
-5. Restart or reload SillyTavern
 
 ### Manual Installation
 
-1. Clone or download this repository into your SillyTavern third-party extensions directory:
+1. Clone this repository into:
    ```
    public/scripts/extensions/third-party/StoryProgressExtended/
    ```
-   Or for user-scoped installations:
-   ```
-   data/<user-handle>/extensions/StoryProgressExtended/
-   ```
-2. Restart or reload SillyTavern
-3. Open **Extensions** and confirm **Story Progress Extended** appears in the extension manager
+2. Restart SillyTavern
 
 ## Usage
 
 ### Basic Workflow
 
-1. **Open the extension panel** — Find "Story Progress Extended" in the Extensions settings drawer
-2. **Select a connection profile** — Choose the API profile to use for task generation and completion checks
-3. **Enter a narrative goal** — Describe what should happen in the story (e.g., "The hero must find the lost artifact and return it to the village elder")
-4. **Click "Generate Tasks"** — The AI breaks your goal into sequential tasks
+1. **Open the extension panel** — "Story Progress Extended" in the Extensions settings drawer
+2. **Select a connection profile** — Choose the API profile for task generation and completion checks
+3. **Describe the character's quest** — What is the character actively trying to achieve? (e.g., "Convince the village elder to share the secret location of the ancient ruins")
+4. **Click "Generate Tasks"** — The AI breaks the quest into sequential objectives the character must accomplish
 5. **Chat normally** — The extension automatically:
-   - Injects the current task/goal into the AI context before each message
-   - Checks completion every N AI messages (configurable)
+   - Injects the current task/quest into the AI context before each message
+   - Checks completion every N AI messages
    - Advances to the next task when the current one is achieved
-6. **When all tasks are complete** — You'll see a success toast and the steering prompt is removed
+6. **When the quest is complete** — A success toast appears and steering prompts are removed
 
 ### Settings
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| **Enabled** | On | Master toggle for the extension |
-| **Connection Profile** | — | Which API profile to use for AI calls |
-| **Number of Tasks** | 5 | How many tasks to generate from your goal |
-| **Check Interval** | 5 | AI messages between automatic completion checks |
-| **Auto-Inject Steering** | On | Automatically inject goal/task context into the AI prompt |
-| **Max Retry Count** | 10 | Auto-complete a task after this many failed checks (prevents stuck tasks) |
+| **Enabled** | On | Master toggle |
+| **Connection Profile** | — | API profile for AI calls |
+| **Number of Tasks** | 5 | How many tasks to generate |
+| **Check Interval** | 5 | AI messages between automatic checks |
+| **Auto-Inject Steering** | On | Inject quest/task context into the AI prompt |
+| **Max Retry Count** | 10 | Auto-complete after N failed checks |
 
 ### Buttons
 
 | Button | Description |
 |--------|-------------|
-| **Generate Tasks** | Generates a new task list from the narrative goal |
-| **Add Tasks** | Appends N more tasks to the existing list (uses "Number of Tasks" setting) |
-| **Reset** | Clears all tasks and progress for the current chat |
-| **◀ Back** | Go back to the previous task (re-opens it as pending) |
-| **Check Now** | Manually trigger a completion check for the current task |
-| **Skip →** | Skip the current task and advance to the next (no AI verification) |
-| **Hide Completed** | Toggle filter to show only incomplete tasks (3 per page) |
+| **Generate Tasks** | Generate a new task list from the quest description |
+| **Add Tasks** | Append more objectives to the existing list |
+| **Reset** | Clear all tasks and progress |
+| **Back** | Go back to the previous task |
+| **Check Now** | Manually trigger a completion check |
+| **Skip** | Skip current task, no AI verification |
+| **Hide Completed** | Toggle filter to show only incomplete tasks |
 
 ### Task Cards
 
-Each task card shows:
-- **Task number** — Sequential position in the list
-- **Status label** — `▸ Current`, `Done`, or `Pending`
-- **Title** — Editable (bold input)
-- **Description** — Editable (textarea)
-- **Delete button** (✕) — Remove the task from the list
+Each task card shows: task number, status (`▸ Current`, `Done`, `Pending`), editable title and description, and a delete button.
 
-### Pagination
-
-When there are more than 5 tasks, pagination controls appear below the task list:
-- `◀ Prev` / `Next ▶` buttons
-- `Page X/Y` indicator
-
-### Goal Banner
+### Quest Banner
 
 A colored banner at the top of the progress section shows:
-- The narrative goal text
-- `Goal:` label (blue) while active
-- `Goal Achieved:` label (green) when all tasks are complete
+- The quest text
+- `Quest:` label while active
+- `Quest Achieved:` label when complete
 
 ## How It Works
 
 ### Context Injection
 
-The extension uses two injection points in SillyTavern's prompt assembly:
+Two injection points in SillyTavern's prompt assembly:
 
-1. **Before Chat History** (position 1) — A brief goals summary:
+1. **Before Chat History** — Brief quest summary:
    ```
-   [Story Progress — Narrative Goal]
-   Goal: The hero must find the lost artifact
-   Current Task (2/5): Reach the Ancient Temple — Travel through the forest to reach the temple entrance
+   [Story Progress — Quest]
+   Quest: Convince the elder to share the secret
+   Current Task (2/5): Find the Elder — Locate the village elder in the market square
    ```
-   This ensures the AI knows the objective before reading the conversation.
 
-2. **After Chat History** (position 2) — A detailed steering reminder:
-   ```
-   [Story Progress — Task 2/5: "Reach the Ancient Temple"]
-   Overall Goal: The hero must find the lost artifact
-   Current Task: Reach the Ancient Temple — Travel through the forest to reach the temple entrance
-
-   Upcoming Tasks:
-   → Solve the Temple Puzzle: Navigate the puzzle chambers
-   → Retrieve the Artifact: Find and take the artifact
-   → Return to Village: Bring the artifact back to the elder
-
-    You MUST actively steer the roleplay toward completing the current task...
-    ```
-    This reminds the AI of the near-future roadmap right before generating a response.
+2. **After Chat History** — Detailed steering reminder with upcoming tasks and mandatory pursuit directive.
 
 ### Completion Checking
 
-- Every N AI messages (configurable), the extension sends recent chat history to the AI and asks whether the current task has been completed
-- **Overlapping windows**: Instead of re-evaluating all messages each time, the extension checks only new messages since the last check, with an overlap of ~50% of the check interval for context continuity
-- **Auto-complete stuck tasks**: If a task fails completion checks N times in a row (configurable via "Max Retry Count", default 10), the extension force-completes it and advances to the next task. This prevents the story from getting stuck on one task indefinitely. A toast shows the attempt count.
-- The evaluator AI responds with `{"completed": true/false, "reasoning": "..."}`
+- After every N AI messages, recent chat history is sent to AI asking whether the current task has been done
+- Overlapping message windows for context continuity
+- Auto-complete stuck tasks after N failed checks
+- Shows "Checking..." notification at the start of every check, plus result
 
 ### Data Storage
 
-- **Settings**: Stored in `context.extensionSettings.storyProgressExtended` (global, persists across chats)
-- **Task data**: Stored in `context.chatMetadata.storyProgressExtended` (per-chat, resets on new chat)
-- **No server-side storage**: All data lives in SillyTavern's existing data structures
+- **Settings**: `context.extensionSettings.storyProgressExtended` (global)
+- **Task data**: `context.chatMetadata.storyProgressExtended` (per-chat)
+
+## Project Structure
+
+```
+StoryProgressExtended/
+├── index.js              # Entry point — re-exports onActivate
+├── manifest.json          # SillyTavern extension manifest
+├── style.css              # All styling
+├── init.js                # Extension initialization + onActivate
+├── lib/
+│   ├── constants.js       # All constants, defaults, shared mutable state
+│   ├── data.js            # Context access + settings + story data CRUD
+│   ├── prompts.js         # Context extractors + 5 prompt builders
+│   ├── parsers.js         # AI response parsers (pure functions)
+│   ├── services.js        # Toast, connection profiles, prompt injector
+│   └── story-manager.js   # Core async business logic
+└── ui/
+    ├── panel.js           # DOM factory — createSettingsPanel
+    └── app.js             # Rendering, event handlers, event binding, refreshUI
+```
 
 ## Troubleshooting
 
-### Extension doesn't appear in the extension list
+### Extension doesn't appear
+- Check browser console for `[StoryProgressExtended]` messages
+- Ensure the folder contains all required files
+- Hard-refresh SillyTavern (Ctrl+Shift+R)
 
-- Check the browser console for `[StoryProgressExtended]` messages
-- Ensure the folder is named correctly and contains `manifest.json`, `index.js`, and `style.css`
-- Try hard-refreshing SillyTavern (Ctrl+Shift+R)
-
-### "No connection profile selected" error
-
-- Install and configure the **Connection Manager** extension (ships with SillyTavern)
-- Create a connection profile in Connection Manager settings
-- Select it in the Story Progress Extended settings
+### "No connection profile selected"
+- Install/configure the Connection Manager extension
+- Create a connection profile and select it in the extension settings
 
 ### Tasks not advancing
-
-- Ensure **Auto-Inject Steering** is enabled
-- Check that the **Check Interval** isn't too high (try 3 for faster checks)
-- Use **Check Now** to manually trigger a completion check
-- Check the browser console for API errors
-
-### Goals not appearing in AI context
-
-- Ensure **Auto-Inject Steering** is enabled
-- The extension injects via `setExtensionPrompt` — this appears in the prompt context but not as a visible chat bubble
-- Check that the extension is **Enabled** in settings
+- Verify Auto-Inject Steering is enabled
+- Try a lower Check Interval (e.g., 3)
+- Use Check Now to manually trigger a verification
+- Check browser console for API errors
 
 ## Requirements
 
-- SillyTavern 1.12+ (with extension support)
-- A connection profile configured in Connection Manager (or SillyTavern's built-in `generateQuietPrompt` as fallback)
-- `toastr` for toast notifications (included in SillyTavern)
+- SillyTavern 1.12+
+- Connection Manager extension (or built-in `generateQuietPrompt` fallback)
 
 ## License
 
