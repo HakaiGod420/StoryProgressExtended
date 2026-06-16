@@ -233,6 +233,19 @@ function renderTaskList(storyData) {
         descTextarea.addEventListener('change', onTaskFieldEdit);
 
         card.append(header, titleInput, descTextarea);
+
+        if (Array.isArray(task.npcs) && task.npcs.length > 0) {
+            const npcRow = document.createElement('div');
+            npcRow.className = 'story-progress-extended__npc-row';
+            for (const npc of task.npcs) {
+                const chip = document.createElement('span');
+                chip.className = 'story-progress-extended__npc-chip';
+                chip.textContent = npc;
+                npcRow.append(chip);
+            }
+            card.append(npcRow);
+        }
+
         list.append(card);
     }
 
@@ -383,7 +396,7 @@ async function onGenerateClick() {
     try {
         const result = await generateStorySteps(storyGoal);
         if (result.success) {
-            showToast('Tasks Generated', 'Tasks generated successfully!', 'success');
+            showToast('Generated', 'Tasks generated.', 'success');
         } else {
             showToast('Error', result.error, 'error');
         }
@@ -428,12 +441,12 @@ function onSkipClick() {
         storyData.storyComplete = true;
         storyData.isActive = false;
         removeSteeringPrompt();
-        showToast('Quest Complete!', `"${storyData.storyGoal}" has been achieved. All ${storyData.storySteps.length} tasks finished.`, 'success');
+        showToast('Quest Complete', `"${storyData.storyGoal}"`, 'success');
     } else {
         storyData.currentStepIndex = next;
         if (settings.autoInject) injectSteeringPrompt(context, settings);
         const nextTask = storyData.storySteps[next];
-        showToast('Skipped Task', `"${task.title}" skipped. Now: "${nextTask.title}"`, 'info');
+        showToast('Skipped', `"${task.title}"`, 'info');
     }
 
     storyData.lastCheckedMsgIndex = (context.chat || []).length;
@@ -461,7 +474,7 @@ function onBackClick() {
 
     if (settings.autoInject) injectSteeringPrompt(context, settings);
     const task = storyData.storySteps[prev];
-    showToast('Went Back', `Now on task: "${task?.title || prev + 1}"`, 'info');
+    showToast('Back', `"${task?.title || prev + 1}"`, 'info');
 
     saveStoryData(context);
     refreshUI();
@@ -559,7 +572,7 @@ async function onAddMoreClick() {
     try {
         const res = await addMoreStorySteps(result.count, result.goal);
         if (res.success) {
-            showToast('Tasks Added', `${result.count} more tasks added to the story.`, 'success');
+            showToast('Added', `${result.count} tasks added.`, 'success');
         } else {
             showToast('Error', res.error, 'error');
         }
