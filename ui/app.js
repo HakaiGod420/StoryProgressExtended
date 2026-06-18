@@ -246,6 +246,47 @@ function renderTaskList(storyData) {
             card.append(npcRow);
         }
 
+        if (Array.isArray(task.subtasks) && task.subtasks.length > 0) {
+            const subtaskId = `spe-subtasks-${index}`;
+
+            const toggleBtn = document.createElement('button');
+            toggleBtn.className = 'story-progress-extended__subtask-toggle';
+            toggleBtn.textContent = `\u25B8 Subtasks (${task.subtasks.length})`;
+            toggleBtn.addEventListener('click', () => {
+                const list = document.getElementById(subtaskId);
+                if (!list) return;
+                const hidden = list.style.display === 'none';
+                list.style.display = hidden ? '' : 'none';
+                toggleBtn.textContent = hidden
+                    ? `\u25BE Subtasks (${task.subtasks.length})`
+                    : `\u25B8 Subtasks (${task.subtasks.length})`;
+                toggleBtn.classList.toggle('story-progress-extended__subtask-toggle--open', hidden);
+            });
+
+            const subtaskList = document.createElement('div');
+            subtaskList.id = subtaskId;
+            subtaskList.className = 'story-progress-extended__subtask-list';
+            subtaskList.style.display = 'none';
+
+            for (const st of task.subtasks) {
+                const item = document.createElement('div');
+                item.className = 'story-progress-extended__subtask-item';
+
+                const stTitle = document.createElement('span');
+                stTitle.className = 'story-progress-extended__subtask-title';
+                stTitle.textContent = st.title || '';
+
+                const stDesc = document.createElement('span');
+                stDesc.className = 'story-progress-extended__subtask-desc';
+                stDesc.textContent = st.description || '';
+
+                item.append(stTitle, stDesc);
+                subtaskList.append(item);
+            }
+
+            card.append(toggleBtn, subtaskList);
+        }
+
         list.append(card);
     }
 
@@ -339,6 +380,8 @@ export function refreshUI() {
     if (ii) ii.value = settings.checkInterval;
     const ai = el('story_progress_extended_auto_inject');
     if (ai) ai.checked = settings.autoInject;
+    const gs = el('story_progress_extended_subtasks');
+    if (gs) gs.checked = settings.generateSubtasks;
     const ma = el('story_progress_extended_max_attempts');
     if (ma) ma.value = settings.maxAttemptsPerTask || 10;
     const gt = el('story_progress_extended_goal');
@@ -640,6 +683,11 @@ function bindEvents(context, settings) {
 
     bind('story_progress_extended_auto_inject', 'change', function () {
         settings.autoInject = this.checked;
+        context.saveSettingsDebounced?.();
+    });
+
+    bind('story_progress_extended_subtasks', 'change', function () {
+        settings.generateSubtasks = this.checked;
         context.saveSettingsDebounced?.();
     });
 

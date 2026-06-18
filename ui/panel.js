@@ -95,6 +95,13 @@ export function createSettingsPanel() {
     autoInjectCb.className = 'story-progress-extended__checkbox';
     content.append(makeRow('Auto-Inject Steering', autoInjectCb.id, [autoInjectCb], { setting: true }));
 
+    // Generate Subtasks
+    const subtasksCb = document.createElement('input');
+    subtasksCb.id = 'story_progress_extended_subtasks';
+    subtasksCb.type = 'checkbox';
+    subtasksCb.className = 'story-progress-extended__checkbox';
+    content.append(makeRow('Generate Subtasks', subtasksCb.id, [subtasksCb], { setting: true }));
+
     // Divider
     const divider = document.createElement('hr');
     divider.className = 'story-progress-extended__divider';

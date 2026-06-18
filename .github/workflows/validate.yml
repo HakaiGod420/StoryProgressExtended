@@ -16,15 +16,45 @@ jobs:
         run: |
           python3 -m json.tool manifest.json > /dev/null
 
+      - name: Validate JavaScript syntax
+        run: |
+          for file in index.js init.js lib/*.js ui/*.js; do
+            node --check "$file" || exit 1
+          done
+
+      - name: Validate CSS syntax
+        run: |
+          python3 -c "
+          import sys, re
+          with open('style.css') as f:
+              css = f.read()
+          css = re.sub(r'/\*.*?\*/', '', css, flags=re.DOTALL)
+          opens = css.count('{')
+          closes = css.count('}')
+          if opens != closes:
+              print(f'CSS brace mismatch: {opens} opens, {closes} closes')
+              sys.exit(1)
+          print(f'CSS OK ({opens} rule blocks)')
+          "
+
       - name: Confirm required files
         run: |
           test -f manifest.json
           test -f index.js
+          test -f init.js
           test -f style.css
           test -f README.md
           test -f LICENSE
           test -f .gitignore
           test -f .editorconfig
+          test -f lib/constants.js
+          test -f lib/data.js
+          test -f lib/parsers.js
+          test -f lib/prompts.js
+          test -f lib/services.js
+          test -f lib/story-manager.js
+          test -f ui/app.js
+          test -f ui/panel.js
           test -f .github/ISSUE_TEMPLATE/bug_report.md
           test -f .github/ISSUE_TEMPLATE/feature_request.md
           test -f .github/pull_request_template.md
