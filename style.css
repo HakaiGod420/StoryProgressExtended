@@ -587,12 +587,13 @@
     font-size: 0.7rem;
     font-weight: 600;
     color: rgba(255, 255, 255, 0.55);
-    white-space: nowrap;
     flex-shrink: 0;
+    min-width: 5.5rem;
 }
 
 .story-progress-extended__subtask-title::after {
     content: ':';
+    margin-right: 0.2rem;
 }
 
 .story-progress-extended__subtask-desc {

@@ -16,11 +16,13 @@ A SillyTavern extension that turns character quests into actionable task lists, 
 - **Manual Go Back** — Go back to the previous task and re-open it as pending
 - **Add More Tasks** — Append additional objectives to an existing plan without regenerating from scratch
 - **Delete Tasks** — Remove individual tasks from the list with automatic index adjustment
+- **AI-Generated Subtasks** — Optional guidance hints for each task: enable "Generate Subtasks" and the AI will produce 3-5 sub-steps per task as a mini-guide. Subtasks are hidden by default and expandable per task card
 - **Filter: Hide Completed** — Toggle to show only incomplete tasks (3 per page)
 - **Auto-Complete Stuck Tasks** — If a task fails N checks (configurable), it is force-completed and the story advances
 - **Pagination** — Long task lists are paginated (3 per page) with prev/next navigation
 - **Toast Notifications** — Non-blocking notifications via SillyTavern's built-in toastr
 - **Connection Profile Support** — Uses SillyTavern's Connection Manager for API calls; falls back to `generateQuietPrompt`
+- **Version 1.0.0** — Now with subtask generation support
 
 ## Installation
 
@@ -62,6 +64,7 @@ A SillyTavern extension that turns character quests into actionable task lists, 
 | **Number of Tasks** | 5 | How many tasks to generate |
 | **Check Interval** | 5 | AI messages between automatic checks |
 | **Auto-Inject Steering** | On | Inject quest/task context into the AI prompt |
+| **Generate Subtasks** | Off | Generate guiding sub-steps for each task |
 | **Max Retry Count** | 10 | Auto-complete after N failed checks |
 
 ### Buttons
@@ -78,7 +81,7 @@ A SillyTavern extension that turns character quests into actionable task lists, 
 
 ### Task Cards
 
-Each task card shows: task number, status (`▸ Current`, `Done`, `Pending`), editable title and description, and a delete button.
+Each task card shows: task number, status (`▸ Current`, `Done`, `Pending`), editable title and description, NPC chips, and a delete button. When subtasks are generated, an expandable `▸ Subtasks (N)` toggle appears — click to reveal the guiding sub-steps.
 
 ### Quest Banner
 
